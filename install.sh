@@ -8,4 +8,4 @@ cd ../abides-markets
 python3 setup.py install
 cd ../abides-gym
 python3 setup.py install
-cd ..
+cd ../../

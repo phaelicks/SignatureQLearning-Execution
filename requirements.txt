@@ -1,17 +1,28 @@
-# This file contains the all requirements except for directory 'abides/',
-# which has its own requirements file 'abides/requirements.txt'.
-# Running 'install.sh' in this file's directory installs requirmentes in 
-# this file, then runs 'abides/install.sh' which installs requirements and
-# dependencies to work with 'abides/' submodule
+# This file subsumes the file `abides/requirements.txt`, except
+# for the requirement `ray[rllib]==1.7.0` since this installs loads
+# of dependencies that are not needed for this project (SignatureQLearning).
+
+# If you want to make use of functionalities in ABIDES that require 
+# `ray[rllib]`, uncomment the requirement below.
 
 # For packages contained in both 'requirements.txt' and 'abides/requirements.txt'
 # the versions originally specified in the latter are used
 
-# requires python 3.8
+# requires python 3.8 which comes with pip version 19.2.3
+# if upgraded to current version 23.0.1 installation of this requirements.txt 
+# file gives warning for package `future` which is a dependency of `signatory`
+# since it uses legacy `setup.py install` method. Currently this warning is no problem
 
+coloredlogs==15.0.1
 gym==0.18.0
 numpy==1.22.0
+pandas==1.2.4
+pomegranate==0.14.5
+psutil==5.8.0
+#ray[rllib]==1.7.0
+scipy==1.7.0
 tqdm==4.61.1
+
 torch==1.6.0 
 torchvision==0.7.0
 signatory==1.2.3.1.6.0
