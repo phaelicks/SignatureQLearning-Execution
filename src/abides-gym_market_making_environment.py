@@ -1,0 +1,108 @@
+import importlib
+from typing import Any, Dict, List
+
+import gym
+import numpy as np
+
+import abides_markets.agents.utils as markets_agent_utils
+from abides_core import NanosecondTime
+from abides_core.utils import str_to_ns
+from abides_core.generators import ConstantTimeGenerator
+
+from abides_gym.envs.markets_environment import AbidesGymMarketsEnv
+
+class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
+    """
+    Market Making v0 environment, it defines a new ABIDES-Gym-markets environment.
+    It provides an evironment for the problem of a market maker trying to maximize its 
+    return by continuously posting (limit) buy and (limit) sell orders to capture the 
+    spread while at the same time keeping its inventory low. The market maker starts 
+    the day with cash but no position, then continously chooses bid and ask levels at 
+    which to post limit orders.  At the end of the day all remaining inventory is liquidated.
+    
+    Arguments:
+        - background_config: the handcrafted agents configuration used for the environnement
+        - mkt_close: time the market day ends
+        - timestep_duration: how long between 2 wakes up of the gym experimental agent
+        - starting_cash: cash of the agents at the beginning of the simulation
+        - order_fixed_size: size of the limit orders placed by the experimental gym agent
+        - mkt_order_alpha: proportion of inventory for market orders placed by the experimental gym agent
+        - state_history_length: length of the raw state buffer
+        - market_data_buffer_length: length of the market data buffer
+        - first_interval: how long the simulation is run before the first wake up of the gym experimental agent
+        - last_intervall: how long before market close the gym experimental agent stops trading
+        - max_inventory: absolute value of maximum inventory the experimental gym agent is allowed to accumulate
+        - leftover_inventory_reward: a constand penalty per unit of inventory at market close
+        - reward_mode: can use a dense of sparse reward formulation
+        - done_ratio: ratio (mark2market_t/starting_cash) that defines when an episode is done (if agent has lost too much mark to market value)
+        - debug_mode: arguments to change the info dictionnary (lighter version if performance is an issue)
+        - background_config_extra_kvargs: dictionary of extra key value  arguments passed to the background config builder function
+    
+    Market Maker V0:
+        - Action Space:
+            - [LMT BUY, LMT SELL] combinations of order_fixed_size: 
+                {[], [] [], [], []} 
+            - MKT BUY of mkt_order_alpha * inventory_t
+            - MKT SELL of mkt_order_alpha * inventory_t
+            - Do nothing
+        - State Space:
+            - remaining_time_pct
+            - inventory_pct
+            - mid_price
+            - lagged_mid_price
+            - imbalance_5
+            – market_spread
+    """
+
+    # Decorator for functions to ignore buffering in market data and generl raw state
+    raw_state_pre_process = markets_agent_utils.ignore_buffers_decorator
+    raw_state_to_state_pre_process = (
+        markets_agent_utils.ignore_mkt_data_buffer_decorator
+    )
+
+    def __init__(
+            self,       
+            background_config: Any = "rmsc04",
+            mkt_close: str = "16:00:00",
+            timestep_duration: str = "10s",
+            starting_cash: int = 100_000,
+            order_fixed_size: int = 10,
+            mkt_order_alpha: float = 0.1,
+            state_history_length: int = 2,  
+            market_data_buffer_length: int = 5,
+            first_interval: str = "00:15:00",
+            last_interval: str = "00:01:00",
+            max_inventory: int = 1000,
+            remaining_inventory_reward: int = -100, 
+            reward_mode: str = "dense",
+            done_ratio: float = 0.2,
+            debug_mode: bool = False,
+            background_config_extra_kvargs: Dict[str, Any] = {}
+    ) -> None: 
+        self.background_config: Any = importlib.import_module(
+            "abides_markets.configs.{}".format(background_config), package=None
+        )
+        self.mkt_close: NanosecondTime = str_to_ns(mkt_close)
+        self.timestep_duration: NanosecondTime = str_to_ns(timestep_duration)
+        self.starting_cash: int = starting_cash
+        self.order_fixed_size: int = order_fixed_size
+        self.mkt_order_alpha: float = mkt_order_alpha
+        self.state_history_length: int = state_history_length
+        self.market_data_buffer_length: int = market_data_buffer_length
+        self.first_interval: NanosecondTime = str_to_ns(first_interval)
+        self.last_interval: NanosecondTime = str_to_ns(last_interval)
+        self.max_inventory: int = max_inventory
+        self.remaining_inventory_reward: int = remaining_inventory_reward
+        self.done_ratio: float = done_ratio
+        self.debug_mode: bool = debug_mode
+
+
+
+
+
+
+
+
+
+    
+
