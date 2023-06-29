@@ -1,18 +1,18 @@
-# This file subsumes the file `abides/requirements.txt`, except
-# for the requirement `ray[rllib]==1.7.0` since this installs loads
-# of dependencies that are not needed for this project (SignatureQLearning).
+# This file subsumes the file 'abides/requirements.txt', except for the 
+# requirement 'ray[rllib]==1.7.0', which causes inconsistencies in depency 
+# versions. Since 'ray[rllib]' is only required for the demo 
+# 'abides/notebooks/Demo_ABIDES-Gym.ipynb' we comment it out below.
 
 # If you want to make use of functionalities in ABIDES that require 
-# `ray[rllib]`, uncomment the requirement below.
+# 'ray[rllib]', uncomment the requirement below and resolve incosistencies.
 
 # For packages contained in both 'requirements.txt' and 'abides/requirements.txt'
-# the versions originally specified in the latter are used
+# the versions originally specified in the latter are used to maintin consistency
+# when running ABIDES simulator
 
-# requires python 3.8 which comes with pip version 19.2.3
-# if upgraded to current version 23.0.1 installation of this requirements.txt 
-# file gives warning for package `future` which is a dependency of `signatory`
-# since it uses legacy `setup.py install` method. Currently this warning is no problem
+# requires python==3.8 which comes with pip version 19.2.3
 
+# requirements from 'abides/requirements.txt'
 coloredlogs==15.0.1
 gym==0.18.0
 numpy==1.22.0
@@ -23,12 +23,12 @@ psutil==5.8.0
 scipy==1.7.0
 tqdm==4.61.1
 
+# further requirements for 'SignatureQLearning'
 torch==1.6.0 
 torchvision==0.7.0
 signatory==1.2.3.1.6.0
 matplotlib==3.7.1
 jupyter==1.0.0
-#wheel==0.40.0
 
 
 # for later versions of <signatory> the install options
