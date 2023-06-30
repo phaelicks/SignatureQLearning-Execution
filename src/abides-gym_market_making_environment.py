@@ -3,6 +3,7 @@ from typing import Any, Dict, List
 
 import gym
 import numpy as np
+import math
 
 import abides_markets.agents.utils as markets_agent_utils
 from abides_core import NanosecondTime
@@ -100,8 +101,34 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         # time the market is open
         self.mkt_open_duration: NanosecondTime = self.mkt_close - str_to_ns("09:30:00")
 
-        # marked_to_market limit to STOP the epsidoe
+        # marked_to_market limit to STOP the episode
         self.down_done_condition: float = self.done_ratio * starting_cash
+
+        # track inventory for MKT order action
+        self.current_inventory: int = 0
+
+        # dict for current prices up to level 5
+        self.price_lvls_dict: Dict[str, Dict[str, float]] = {
+            "lvl_1": {"BID": 1, "ASK": 1},
+            "lvl_2": {"BID": 1, "ASK": 1},
+            "lvl_3": {"BID": 1, "ASK": 1},
+            "lvl_4": {"BID": 1, "ASK": 1},
+            "lvl_5": {"BID": 1, "ASK": 1}
+        }
+
+        # dict with limit order spreads for actions
+        # {action_ids : {bid level, ask level}}
+        self.lmt_spreads_dict: Dict [int, Dict[str, int]] = {
+            0: {"BID": 1, "ASK": 1},
+            1: {"BID": 2, "ASK": 2},
+            2: {"BID": 3, "ASK": 3},
+            3: {"BID": 4, "ASK": 4},
+            4: {"BID": 5, "ASK": 5},
+            5: {"BID": 1, "ASK": 3},
+            6: {"BID": 3, "ASK": 1},
+            7: {"BID": 2, "ASK": 5},
+            8: {"BID": 5, "ASK": 2},
+        }
 
         # CHECK PROPERTIES
         assert background_config in [
@@ -231,15 +258,70 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         )
         self.previous_marked_to_market: int = self.starting_cash
 
+    # UTILITY FUNCTIONS
 
     def _map_action_space_to_ABIDES_SIMULATOR_SPACE(
         self, action: int
     ) -> List[Dict[str, Any]]:
-        return
+        """
+        utility function that maps OpenAI action definition (integers) 
+        to environnement API action definition (list of dictionaries)
+        The action space ranges [0, 1, 2, 3, ..., 11] where:
+        - `0` MKT direction order_fixed_size
+        - '10' MKT order of size -mkt_order_alpha*inventory_t
+        - '11' DO NOTHING
+
+        Arguments:
+            - action: integer representation of the different actions
+
+        Returns:
+            - action_list: list of the corresponding series of action mapped into abides env apis
+        """
+
+        # limit orders
+        if action in range(9):
+            bid_lvl = self.lmt_spreads_dict[action]["BID"]
+            ask_lvl = self.lmt_spreads_dict[action]["ASK"]
+            return [
+                {"type: CCL_ALL"},
+                {
+                    "type": "LMT",
+                    "direction": "BUY",
+                    "size": self.order_fixed_size,
+                    "limit_price": self.price_lvls_dict[bid_lvl]["BID"]
+                },
+                {
+                    "type": "LMT",
+                    "direction": "SELL",
+                    "size": self.order_fixed_size,
+                    "limit_price": self.price_lvls_dict[ask_lvl]["ASK"]
+                }
+            ]
+        elif action == 10:
+            if self.inventory == 0: 
+                return []
+            mkt_order_direction = "BUY" if self.current_inventory < 0 else "SELL" 
+            mkt_order_size = math.ceil(abs(self.mkt_order_alpha * self.current_inventory))
+            return [
+                {"type": "CCL_ALL"},
+                {
+                    "type": "MKT",
+                    "direction": mkt_order_direction,
+                    "size": mkt_order_size
+                }
+            ]
+        elif action == 11:
+            return []
+        else:
+            raise ValueError(
+                f"Action {action} is not poart of the actions support by this environment."
+            )
         
 
     @raw_state_to_state_pre_process
     def raw_state_to_state(self, raw_state: Dict[str, Any]) -> np.ndarray:
+        # save current inventory under self.inventory for mkt_order action
+        # save price levels up to level 5 under self.price_lvl_dict for lmt_order actions
         return
 
     @raw_state_pre_process
