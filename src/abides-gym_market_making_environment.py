@@ -96,6 +96,75 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         self.done_ratio: float = done_ratio
         self.debug_mode: bool = debug_mode
 
+        # time the market is open
+        self.mkt_open_duration: NanosecondTime = self.mkt_close - str_to_ns("09:30:00")
+
+        # marked_to_market limit to STOP the epsidoe
+        self.down_done_condition: float = self.done_ratio * starting_cash
+
+        # CHECK PROPERTIES
+        assert background_config in [
+            "rmsc03",
+            "rmsc04",
+            "smc_01",
+        ], "Select rmsc03, rmsc04 or smc_01 as config"
+
+        assert (self.mkt_close <= str_to_ns("16:00:00")) & (
+            self.mkt_close >= str_to_ns("09:30:00")
+        ), "Select authorized market hours"
+
+        assert (self.timestep_duration <= self.mkt_open_duration) & (
+            self.timestep_duration >= str_to_ns("00:00:00")
+        ), "Select authorized timestep_duration"
+
+        assert (type(self.starting_cash) == int) & (
+            self.starting_cash >= 0
+        ), "Select positive integer value for starting_cash" 
+
+        assert (type(self.order_fixed_size) == int) & (
+            self.order_fixed_size >= 0
+        ), "Select positive integer value for order_fixed_size"
+
+        assert (type(self.mkt_order_alpha) == float) & (
+            0 <= self.mkt_order_alpha <= 1
+        ), "Select positive float value for mkt_order_alpha between 0 and 1"
+
+        assert (type(self.state_history_length) == int) & (
+            self.state_history_length >= 0
+        ), "Select positive integer value for order_fixed_size"
+
+        assert (type(self.market_data_buffer_length) == int) & (
+            self.market_data_buffer_length >= 0
+        ), "Select positive integer value for order_fixed_size"
+
+        assert (self.first_interval <= self.mkt_open_duration) & (
+            self.first_interval >= str_to_ns("00:00:00")
+        ), "Select authorized FIRST_INTERVAL delay"
+
+        assert (self.last_interval >= str_to_ns("00:00:00")) & (
+            self.last_interval <= self.mkt_open_duration
+        ), "Select authorized LAST_INTERVAL stop before market close"
+
+        assert (
+            self.first_interval + self.last_interval <= self.mkt_open_duration
+        ), "Select authorized FIRST_INTERVAL and LAST_INTERVAL combination"    
+
+        assert (type(self.max_inventory) == int) & (
+            self.max_inventory >= 0
+        ), "Select positive integer value for max_inventory"
+
+        assert (
+            type(self.remaining_inventory_reward) == int
+        ), "Select integer value for remaining_inventory_reward"
+
+        assert (type(self.done_ratio) == float) & (
+            0 <= self.done_ratio <= 1
+        ), "Select positive float value for done_ration between 0 and 1"
+
+        assert self.debug_mode in [
+            True,
+            False,
+        ], "debug_mode needs to be True or False"                
 
 
 
