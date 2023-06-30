@@ -31,6 +31,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         - market_data_buffer_length: length of the market data buffer
         - first_interval: how long the simulation is run before the first wake up of the gym experimental agent
         - last_intervall: how long before market close the gym experimental agent stops trading
+        TODO: implement functionality to stop at mkt_clos - last_intervall
         - max_inventory: absolute value of maximum inventory the experimental gym agent is allowed to accumulate
         - leftover_inventory_reward: a constand penalty per unit of inventory at market close
         - reward_mode: can use a dense of sparse reward formulation
@@ -71,7 +72,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
             state_history_length: int = 2,  
             market_data_buffer_length: int = 5,
             first_interval: str = "00:15:00",
-            last_interval: str = "00:01:00",
+            last_interval: str = "00:00:00",
             max_inventory: int = 1000,
             remaining_inventory_reward: int = -100, 
             reward_mode: str = "dense",
@@ -113,9 +114,10 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
             self.mkt_close >= str_to_ns("09:30:00")
         ), "Select authorized market hours"
 
-        assert (self.timestep_duration <= self.mkt_open_duration) & (
+        assert (
+            self.timestep_duration <= self.mkt_open_duration - self.last_interval) & (
             self.timestep_duration >= str_to_ns("00:00:00")
-        ), "Select authorized timestep_duration"
+            ), "Select authorized timestep_duration"
 
         assert (type(self.starting_cash) == int) & (
             self.starting_cash >= 0
@@ -167,7 +169,56 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         ], "debug_mode needs to be True or False"                
 
 
+        # BACKGROUND CONFIG
+        background_config_args = {"end_time": self.mkt_close}
+        background_config_args.update(background_config_extra_kvargs)
+        
+        # INIT
+        super().__init__(
+            background_config_pair=(
+                self.background_config.build_config,
+                background_config_args,
+            ),
+            wakeup_interval_generator=ConstantTimeGenerator(
+                step_duration=self.timestep_duration
+            ),
+            starting_cash=self.starting_cash,
+            state_buffer_length=self.state_history_length,
+            market_data_buffer_length=self.market_data_buffer_length,
+            first_interval=self.first_interval,
+        )
 
+        # ACTION SPACE
+
+
+        # STATE SPACE
+
+
+    def _map_action_space_to_ABIDES_SIMULATOR_SPACE(
+        self, action: int
+    ) -> List[Dict[str, Any]]:
+        return
+        
+
+    @raw_state_to_state_pre_process
+    def raw_state_to_state(self, raw_state: Dict[str, Any]) -> np.ndarray:
+        return
+
+    @raw_state_pre_process
+    def raw_state_to_reward(self, raw_state: Dict[str, Any]) -> float:
+        return
+
+    @raw_state_pre_process
+    def raw_state_to_update_reward(self, raw_state: Dict[str, Any]) -> float:
+        return
+
+    @raw_state_pre_process
+    def raw_state_to_done(self, raw_state: Dict[str, Any]) -> bool:
+        return
+
+    @raw_state_pre_process
+    def raw_state_to_info(self, raw_state: Dict[str, Any]) -> Dict[str, Any]:
+        return
 
 
 
