@@ -189,9 +189,47 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         )
 
         # ACTION SPACE
-
+        # 9 LMT spreads order_fixed_size, 
+        # MKT inventory * mkt_order_alpha
+        # Do nothing
+        self.num_actions: int = 11
+        self.action_space: gym.Space = gym.spaces.Discrete(self.num_actions)
 
         # STATE SPACE
+        # [remaining_time_pct, inventory_pct, mid_price, 
+        #   lagged_mid_price, imbalance_5, market_spread]
+        self.num_state_features: int = 6
+        
+        # create state space "box"
+        self.state_highs: np.ndarray = np.array(
+            [
+                2, # remaining_time_pct
+                2, # inventory_pct
+                np.finfo(np.float).max, # mid_price
+                np.finfo(np.float).max, # lagged_mid_price
+                1, # imbalance_5
+                np.finfo(np.float).max # market_spread
+            ]
+        ).reshape(self.num_state_features, 1)
+
+        self.state_lows: np.ndarray = np.array(
+            [
+                -2, # remaining_time_pct
+                -2, # inventory_pct
+                np.finfo(np.float).min, # mid_price
+                np.finfo(np.float).min, # lagged_mid_price
+                -1, # imbalance_5
+                np.finfo(np.float).min # market_spread
+            ]
+        ).reshape(self.num_state_features, 1)
+
+        self.observation_space: gym.Space = gym.spaces.Box(
+            self.state_lows,
+            self.state_highs,
+            shape=(self.num_state_features, 1),
+            dtype=np.float32
+        )
+        self.previous_marked_to_market: int = self.starting_cash
 
 
     def _map_action_space_to_ABIDES_SIMULATOR_SPACE(
