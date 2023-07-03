@@ -320,8 +320,30 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
 
     @raw_state_to_state_pre_process
     def raw_state_to_state(self, raw_state: Dict[str, Any]) -> np.ndarray:
+        """
+        method that transforms a raw state into a state representation
+
+        Arguments:
+            - raw_state: dictionnary that contains raw simulation information obtained from the gym experimental agent
+
+        Returns:
+            - state: state / observation representation for the market making v0 environnement
+        """
+        
         # save current inventory under self.inventory for mkt_order action
         # save price levels up to level 5 under self.price_lvl_dict for lmt_order actions
+        
+        # 0)  Preliminary
+        bids = raw_state["parsed_mkt_data"]["bids"]
+        asks = raw_state["parsed_mkt_data"]["asks"]
+        last_transactions = raw_state["parsed_mkt_data"]["last_transaction"]
+
+        # 1) Timing
+
+        # 2) Inventory
+
+        # 3) 
+
         return
 
     @raw_state_pre_process
