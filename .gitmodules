@@ -1,0 +1,3 @@
+[submodule "abides-jpmc-public"]
+	path = abides-jpmc-public
+	url = https://github.com/phaelicks/abides-jpmc-public.git
