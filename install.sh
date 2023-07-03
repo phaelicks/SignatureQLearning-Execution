@@ -1,5 +1,5 @@
 python3 -m pip install -r requirements.txt
-cd abides/abides-core
+cd abides-jpmc-public/abides-core
 python3 setup.py install
 cd ../abides-markets
 python3 setup.py install
