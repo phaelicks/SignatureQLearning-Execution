@@ -4,6 +4,7 @@
 **/.ipynb_checkpoints/
 .vs/
 .idea/
+.DS_Store
 
 # ignore whole 'abides repository which is a subfolder
 # of this repository
