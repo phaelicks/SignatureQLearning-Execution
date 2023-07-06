@@ -70,7 +70,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
             starting_cash: int = 100_000,
             order_fixed_size: int = 10,
             mkt_order_alpha: float = 0.1,
-            state_history_length: int = 2,  
+            state_history_length: int = 3,  
             market_data_buffer_length: int = 5,
             first_interval: str = "00:15:00",
             last_interval: str = "00:00:00",
@@ -314,7 +314,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
             return []
         else:
             raise ValueError(
-                f"Action {action} is not poart of the actions support by this environment."
+                f"Action {action} is not part of the actions support by this environment."
             )
         
 
@@ -339,12 +339,72 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         last_transactions = raw_state["parsed_mkt_data"]["last_transaction"]
 
         # 1) Timing
+        mkt_open = raw_state["internal_data"]["mkt_open"][-1]
+        mkt_close = raw_state["internal_data"]["mkt_close"][-1]
+        current_time = raw_state["internal_data"]["current_time"][-1]
+        assert (
+            current_time >= mkt_open + self.first_interval
+        ), "Agent has woken up earlier than its first interval"
+        elapsed_time = current_time - mkt_open - self.first_interval
+        total_time = mkt_close - mkt_open - self.first_interval
+        # percentage time advancement
+        time_pct = elapsed_time / total_time
 
         # 2) Inventory
+        # save current inventory for mkt_order size
+        self.current_inventory = raw_state["internal_data"]["holdings"]
+        inventory_pct = self.current_inventory / self.max_inventory
 
-        # 3) 
+        # 3) mid_price & 4) lagged mid price
 
-        return
+        mid_prices = [
+            markets_agent_utils.get_mid_price(b, a, lt)
+            for (b, a, lt) in zip(bids, asks, last_transactions)
+        ]
+        lagged_mid_price = mid_prices[-2]
+        mid_price = mid_price[-1]        
+
+        # 4) volume imbalance
+        imbalances_3_buy = [
+            markets_agent_utils.get_imbalance(b, a, depth=3)
+            for (b, a) in zip(bids, asks)
+        ]
+        imbalances_3_sell = [
+            markets_agent_utils.get_imbalance(b, a, direction="SELL", depth=3)
+            for (b, a) in zip(bids, asks)
+        ]
+        imbalance_3 = imbalances_3_buy[-1] - imbalances_3_sell
+
+        # 6) Spread
+        best_bids = [
+            bids[0][0] if len(bids) > 0 else mid
+            for (bids, mid) in zip(bids, mid_prices)
+        ]
+        best_asks = [
+            asks[0][0] if len(asks) > 0 else mid
+            for (asks, mid) in zip(asks, mid_prices)
+        ]
+
+        spreads = np.array(best_asks) - np.array(best_bids)
+        spread = spreads[-1]     
+
+        # log custom metrics to tracker
+        # TODO: implement custom metrics tracker
+
+        # computed state
+        computed_state = np.array(
+            [
+                time_pct,
+                inventory_pct,
+                mid_price,
+                lagged_mid_price,
+                imbalance_3,
+                spread
+            ], dtype=np.float32
+        )
+
+        self.step_index += 1
+        return computed_state.reshape(self.num_state_features, 1)
 
     @raw_state_pre_process
     def raw_state_to_reward(self, raw_state: Dict[str, Any]) -> float:
