@@ -257,7 +257,8 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         )
         self.previous_marked_to_market: int = self.starting_cash
 
-    # UTILITY FUNCTIONS
+
+    # UTILITY FUNCTIONS that translate between gym environment and ABIDES simulation
 
     def _map_action_space_to_ABIDES_SIMULATOR_SPACE(
         self, action: int
@@ -282,7 +283,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
             bid_lvl = self.lmt_spreads_dict[action]["BID"]
             ask_lvl = self.lmt_spreads_dict[action]["ASK"]
             return [
-                {"type: CCL_ALL"},
+                {"type: CCL_ALL"}, # TODO: check order status, keep existing orders if on correct level
                 {
                     "type": "LMT",
                     "direction": "BUY",
@@ -298,7 +299,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
                     # orderbook_dict filled in raw_state_to_state
                 }
             ]
-        elif action == 10:
+        elif action == 9:
             if self.inventory == 0: 
                 return []
             mkt_order_direction = "BUY" if self.current_inventory < 0 else "SELL" 
@@ -311,7 +312,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
                     "size": mkt_order_size
                 }
             ]
-        elif action == 11:
+        elif action == 10:
             return []
         else:
             raise ValueError(
@@ -332,11 +333,14 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         """
                 
         # 0)  Preliminary
+        # 0) a) orderbook data for state variable creation
         bids = raw_state["parsed_mkt_data"]["bids"]
         asks = raw_state["parsed_mkt_data"]["asks"]
         last_transactions = raw_state["parsed_mkt_data"]["last_transaction"]
 
-        # fill orderbook_dict for action translation
+        #0) b) fill orderbook_dict for action translation
+        # TODO: check and save order status from previous step, to keep orders if on 
+        #       correct level, instead of cancelling all orders in action translation        
         last_bids = bids[-1]
         last_asks = asks[-1]
         for book, book_name in [(last_bids, "bids"), (last_asks, "asks")]:
@@ -365,7 +369,6 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         inventory_pct = self.current_inventory / self.max_inventory
 
         # 3) mid_price & 4) lagged mid price
-
         mid_prices = [
             markets_agent_utils.get_mid_price(b, a, lt)
             for (b, a, lt) in zip(bids, asks, last_transactions)
@@ -417,10 +420,13 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
 
     @raw_state_pre_process
     def raw_state_to_reward(self, raw_state: Dict[str, Any]) -> float:
+        # implement reward functions with and without inventory penalty
+        # also with spread?
         return
 
     @raw_state_pre_process
     def raw_state_to_update_reward(self, raw_state: Dict[str, Any]) -> float:
+        # TODO: include terminal inventory penalty?
         return
 
     @raw_state_pre_process
