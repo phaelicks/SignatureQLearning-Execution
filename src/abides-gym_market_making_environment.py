@@ -107,13 +107,12 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         # track inventory for MKT order action
         self.current_inventory: int = 0
 
-        # dict for current prices up to level 5
-        self.price_lvls_dict: Dict[str, Dict[str, float]] = {
-            "lvl_1": {"BID": 1, "ASK": 1},
-            "lvl_2": {"BID": 1, "ASK": 1},
-            "lvl_3": {"BID": 1, "ASK": 1},
-            "lvl_4": {"BID": 1, "ASK": 1},
-            "lvl_5": {"BID": 1, "ASK": 1}
+        # dict for current prices up to level 5 for action translation
+        # will be filled in raw_state_to_state function
+        # TODO: find better solution to make prices available in action translation
+        self.orderbook_dict = {
+            "asks": {"price": {}, "volume": {}},
+            "bids": {"price": {}, "volume": {}},
         }
 
         # dict with limit order spreads for actions
@@ -267,8 +266,8 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         utility function that maps OpenAI action definition (integers) 
         to environnement API action definition (list of dictionaries)
         The action space ranges [0, 1, 2, 3, ..., 11] where:
-        - `0` MKT direction order_fixed_size
-        - '10' MKT order of size -mkt_order_alpha*inventory_t
+        - `0` - `9` LMT order pairs of order_fixed_size
+        - '10' MKT order of size (-mkt_order_alpha * inventory_t)
         - '11' DO NOTHING
 
         Arguments:
@@ -288,13 +287,15 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
                     "type": "LMT",
                     "direction": "BUY",
                     "size": self.order_fixed_size,
-                    "limit_price": self.price_lvls_dict[bid_lvl]["BID"]
+                    "limit_price": self.orderbook_dict["bids"]["price"][bid_lvl]
+                    # orderbook_dict filled in raw_state_to_state
                 },
                 {
                     "type": "LMT",
                     "direction": "SELL",
                     "size": self.order_fixed_size,
-                    "limit_price": self.price_lvls_dict[ask_lvl]["ASK"]
+                    "limit_price": self.orderbook_dict["asks"]["price"][ask_lvl]
+                    # orderbook_dict filled in raw_state_to_state
                 }
             ]
         elif action == 10:
@@ -329,14 +330,21 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         Returns:
             - state: state / observation representation for the market making v0 environnement
         """
-        
-        # TODO: save current inventory under self.inventory for mkt_order action
-        # TODO: save price levels up to level 5 under self.price_lvl_dict for lmt_order actions
-        
+                
         # 0)  Preliminary
         bids = raw_state["parsed_mkt_data"]["bids"]
         asks = raw_state["parsed_mkt_data"]["asks"]
         last_transactions = raw_state["parsed_mkt_data"]["last_transaction"]
+
+        # fill orderbook_dict for action translation
+        last_bids = bids[-1]
+        last_asks = asks[-1]
+        for book, book_name in [(last_bids, "bids"), (last_asks, "asks")]:
+            for level in [1, 2, 3, 4, 5]:
+                price, volume = markets_agent_utils.get_val(book, level)
+                self.orderbook_dict[book_name]["price"][level] = np.array([price]).reshape(-1)
+                self.orderbook_dict[book_name]["volume"][level] = np.array([volume]).reshape(-1)
+                #TODO: why as np.array? Does this work with action translation?
 
         # 1) Timing
         mkt_open = raw_state["internal_data"]["mkt_open"][-1]
@@ -352,7 +360,8 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
 
         # 2) Inventory
         # save current inventory for mkt_order size
-        self.current_inventory = raw_state["internal_data"]["holdings"]
+        holdings = raw_state["internal_data"]["holdings"]
+        self.current_inventory = holdings[-1]
         inventory_pct = self.current_inventory / self.max_inventory
 
         # 3) mid_price & 4) lagged mid price
@@ -373,7 +382,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
             markets_agent_utils.get_imbalance(b, a, direction="SELL", depth=3)
             for (b, a) in zip(bids, asks)
         ]
-        imbalance_3 = imbalances_3_buy[-1] - imbalances_3_sell
+        imbalance_3 = imbalances_3_buy[-1] - imbalances_3_sell[-1]
 
         # 6) Spread
         best_bids = [
