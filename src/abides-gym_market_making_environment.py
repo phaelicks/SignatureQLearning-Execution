@@ -330,8 +330,8 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
             - state: state / observation representation for the market making v0 environnement
         """
         
-        # save current inventory under self.inventory for mkt_order action
-        # save price levels up to level 5 under self.price_lvl_dict for lmt_order actions
+        # TODO: save current inventory under self.inventory for mkt_order action
+        # TODO: save price levels up to level 5 under self.price_lvl_dict for lmt_order actions
         
         # 0)  Preliminary
         bids = raw_state["parsed_mkt_data"]["bids"]
