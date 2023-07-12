@@ -34,7 +34,8 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         - last_intervall: how long before market close the gym experimental agent stops trading
         TODO: implement functionality to stop at mkt_clos - last_intervall
         - max_inventory: absolute value of maximum inventory the experimental gym agent is allowed to accumulate
-        - leftover_inventory_reward: a constand penalty per unit of inventory at market close
+        - leftover_inventory_reward: a constant penalty per unit of inventory at market close
+        - inventory_reward_dampener: parameter that defines dampening of rewards from speculation
         - reward_mode: can use a dense of sparse reward formulation
         - done_ratio: ratio (mark2market_t/starting_cash) that defines when an episode is done (if agent has lost too much mark to market value)
         - debug_mode: arguments to change the info dictionnary (lighter version if performance is an issue)
@@ -76,6 +77,8 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
             last_interval: str = "00:00:00",
             max_inventory: int = 1000,
             remaining_inventory_reward: int = -100, 
+            inventory_reward_dampener: float = 0,
+            damp_mode: str = "asymmetric",
             reward_mode: str = "dense",
             done_ratio: float = 0.2,
             debug_mode: bool = False,
@@ -95,6 +98,8 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         self.last_interval: NanosecondTime = str_to_ns(last_interval)
         self.max_inventory: int = max_inventory
         self.remaining_inventory_reward: int = remaining_inventory_reward
+        self.inventory_reward_dampener: float = inventory_reward_dampener
+        self.damp_mode: str = damp_mode
         self.done_ratio: float = done_ratio
         self.debug_mode: bool = debug_mode
 
@@ -104,8 +109,13 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         # marked_to_market limit to STOP the episode
         self.down_done_condition: float = self.done_ratio * starting_cash
 
-        # track inventory for MKT order action
+        # track inventory for MKT order action and reward calculation
+        self.previous_inventory: int = 0
         self.current_inventory: int = 0
+
+        # track mid prices for reward calculation
+        self.current_mid_price: float = 0
+        self.previous_mid_price: float = 0
 
         # dict for current prices up to level 5 for action translation
         # will be filled in raw_state_to_state function
@@ -185,6 +195,15 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
             type(self.remaining_inventory_reward) == int
         ), "Select integer value for remaining_inventory_reward"
 
+        assert (type(self.inventory_reward_dampener) == float) & (
+            0 <= self.inventory_reward_dampener <= 1
+        ), "Select positive float value for inventory_reward_dampener between 0 and 1"
+
+        assert damp_mode in [
+            "asymmetric",
+            "symmetric"
+        ], "damp_mode needs to be symmetric or asymmetric"
+
         assert (type(self.done_ratio) == float) & (
             0 <= self.done_ratio <= 1
         ), "Select positive float value for done_ration between 0 and 1"
@@ -255,7 +274,6 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
             shape=(self.num_state_features, 1),
             dtype=np.float32
         )
-        self.previous_marked_to_market: int = self.starting_cash
 
 
     # UTILITY FUNCTIONS that translate between gym environment and ABIDES simulation
@@ -282,6 +300,34 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         if action in range(9):
             bid_lvl = self.lmt_spreads_dict[action]["BID"]
             ask_lvl = self.lmt_spreads_dict[action]["ASK"]
+            
+            cancel = {"type: CCL_ALL"} # TODO: check order status, keep existing orders if on correct level
+            lmt_buy = {
+                "type": "LMT",
+                "direction": "BUY",
+                "size": self.order_fixed_size,
+                "limit_price": self.orderbook_dict["bids"]["price"][bid_lvl]
+                # orderbook_dict filled in raw_state_to_state
+            }
+            lmt_sell = {
+                "type": "LMT",
+                "direction": "SELL",
+                "size": self.order_fixed_size,
+                "limit_price": self.orderbook_dict["asks"]["price"][ask_lvl]
+                # orderbook_dict filled in raw_state_to_state
+            }
+
+            if abs(self.current_inventory) < self.max_inventory:
+                return [cancel, lmt_buy, lmt_sell]
+            elif self.current_inventory > 0:
+                return [cancel, lmt_sell]
+            elif self.current_inventory < 0:
+                return [cancel, lmt_buy]
+            else:
+                raise ValueError(
+                    f"Current inventory {self.current_inventory} does not match allowed values"
+                )
+            """     
             return [
                 {"type: CCL_ALL"}, # TODO: check order status, keep existing orders if on correct level
                 {
@@ -299,6 +345,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
                     # orderbook_dict filled in raw_state_to_state
                 }
             ]
+            """
         elif action == 9:
             if self.inventory == 0: 
                 return []
@@ -363,18 +410,21 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         time_pct = elapsed_time / total_time
 
         # 2) Inventory
-        # save current inventory for mkt_order size
+        self.previous_inventory = self.current_inventory # save for reward calculation
         holdings = raw_state["internal_data"]["holdings"]
-        self.current_inventory = holdings[-1]
+        self.current_inventory = holdings[-1] # save for mkt_order size
         inventory_pct = self.current_inventory / self.max_inventory
 
         # 3) mid_price & 4) lagged mid price
+        # TODO: normalize mid price
+        self.previous_mid_price = self.current_mid_price # save for reward calculation
+        lagged_mid_price = self.previous_mid_price
         mid_prices = [
             markets_agent_utils.get_mid_price(b, a, lt)
             for (b, a, lt) in zip(bids, asks, last_transactions)
         ]
-        lagged_mid_price = mid_prices[-2]
-        mid_price = mid_price[-1]        
+        mid_price = mid_price[-1]
+        self.current_mid_price = mid_price # save for reward calcultion
 
         # 4) volume imbalance
         imbalances_3_buy = [
@@ -420,22 +470,179 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
 
     @raw_state_pre_process
     def raw_state_to_reward(self, raw_state: Dict[str, Any]) -> float:
-        # implement reward functions with and without inventory penalty
-        # also with spread?
-        return
+        """
+        method that transforms a raw state into the reward obtained during the step
+
+        Arguments:
+            - raw_state: dictionnary that contains raw simulation information obtained from the gym experimental agent
+
+        Returns:
+            - reward: immediate reward computed at each step  for the execution v0 environnement
+        """
+        # we define the reward as sum of two components (Spooner et al (2018)):
+        #   1) value of executed orders since last step
+        #   2) change in inventory value due to midprice fluctuations
+        # TODO: implement reward functions with and without inventory penalty
+        # TODO: add spread as reward component instead of state variable
+
+        # 1) value of executed orders relative to mid price
+        inter_wakeup_executed_orders = raw_state["internal_data"][
+            "inter_wakeup_executed_orders"
+        ]
+        if len(inter_wakeup_executed_orders) == 0:
+            pnl = 0
+        else: 
+            pnl = 0
+            for order in inter_wakeup_executed_orders:
+                # with previous mid prices
+                pnl += (
+                    (self.previous_mid_price - order.fill_price) * order.quantity
+                    if order.is_bid()
+                    else 
+                    (order.fill_price - self.previous_mid_price) * order.quantity
+                )
+        self.pnl = pnl
+
+        # 2) change in inventory value
+        mid_price_change = self.current_mid_price - self.previous_mid_price
+        inventory_reward = self.previous_inventory * mid_price_change
+        # damp reward component
+        if self.damp_mode == "asymmetric":
+            inventory_reward *= (1 - self.inventory_reward_dampener)
+        elif self.damp_mode == "symmetric":
+            inventory_reward -= max(
+                0,
+                self.inventory_reward_dampener * self.previous_inventory * mid_price_change
+            )
+        self.inventory_reward = inventory_reward
+
+        # TODO: normalize for order size and max inventory?
+        #reward = pnl / self.order_fixed_size + inventory_change / self.max_inventory
+        
+        reward = pnl +  inventory_reward
+        return reward
 
     @raw_state_pre_process
     def raw_state_to_update_reward(self, raw_state: Dict[str, Any]) -> float:
-        # TODO: include terminal inventory penalty?
+        # TODO: include terminal inventory penalty
         return
 
     @raw_state_pre_process
     def raw_state_to_done(self, raw_state: Dict[str, Any]) -> bool:
+        """
+        method that transforms a raw state into the flag if an episode is done
+
+        Arguments:
+            - raw_state: dictionnary that contains raw simulation information obtained from the gym experimental agent
+
+        Returns:
+            - done: flag that describes if the episode is terminated or not  for the execution v0 environnement
+        """
+        # episode can stop because market closes (or because some condition is met)
+        # here no other condition is used (such as running out of cash)
         return
 
     @raw_state_pre_process
     def raw_state_to_info(self, raw_state: Dict[str, Any]) -> Dict[str, Any]:
-        return
+        """
+        method that transforms a raw state into an info dictionnary
+
+        Arguments:
+            - raw_state: dictionnary that contains raw simulation information obtained from the gym experimental agent
+
+        Returns:
+            - reward: info dictionnary computed at each step for the daily investor v0 environnement
+        """
+        # Agent cannot use this info for taking decision
+        # only for debugging
+
+        # 1) Last Known Market Transaction Price
+        last_transaction = raw_state["parsed_mkt_data"]["last_transaction"]
+
+        # 2) Last Known best bid
+        bids = raw_state["parsed_mkt_data"]["bids"]
+        best_bid = bids[0][0] if len(bids) > 0 else last_transaction
+
+        # 3) Last Known best ask
+        asks = raw_state["parsed_mkt_data"]["asks"]
+        best_ask = asks[0][0] if len(asks) > 0 else last_transaction
+
+        # 4) Available Cash
+        cash = raw_state["internal_data"]["cash"]
+
+        # 5) Current Time
+        current_time = raw_state["internal_data"]["current_time"]
+
+        # 6) Holdings
+        holdings = raw_state["internal_data"]["holdings"]
+
+        # 7) Spread
+        spread = best_ask - best_bid
+
+        # 8) OrderBook features
+        orderbook = {
+            "asks": {"price": {}, "volume": {}},
+            "bids": {"price": {}, "volume": {}},
+        }
+
+        for book, book_name in [(bids, "bids"), (asks, "asks")]:
+            for level in [0, 1, 2]:
+                price, volume = markets_agent_utils.get_val(book, level)
+                orderbook[book_name]["price"][level] = np.array([price]).reshape(-1)
+                orderbook[book_name]["volume"][level] = np.array([volume]).reshape(-1)
+
+        # 9) order_status
+        order_status = raw_state["internal_data"]["order_status"]
+
+        # 10) mkt_open
+        mkt_open = raw_state["internal_data"]["mkt_open"]
+
+        # 11) mkt_close
+        mkt_close = raw_state["internal_data"]["mkt_close"]
+
+        # 12) last vals
+        last_bid = markets_agent_utils.get_last_val(bids, last_transaction)
+        last_ask = markets_agent_utils.get_last_val(asks, last_transaction)
+
+        # 13) spreads
+        wide_spread = last_ask - last_bid
+        ask_spread = last_ask - best_ask
+        bid_spread = best_bid - last_bid
+
+        # 14) compute the marked to market
+        marked_to_market = cash + holdings * last_transaction
+
+        # 15) self.pnl
+        # 16) self.inventory_reward
+        # 17) reward = self.pnl + self.inventory_reward
+
+        if self.debug_mode == True:
+            return {
+                "last_transaction": last_transaction,
+                "best_bid": best_bid,
+                "best_ask": best_ask,
+                "spread": spread,
+                "bids": bids,
+                "asks": asks,
+                "cash": cash,
+                "current_time": current_time,
+                "holdings": holdings,
+                "orderbook": orderbook,
+                "order_status": order_status,
+                "mkt_open": mkt_open,
+                "mkt_close": mkt_close,
+                "last_bid": last_bid,
+                "last_ask": last_ask,
+                "wide_spread": wide_spread,
+                "ask_spread": ask_spread,
+                "bid_spread": bid_spread,
+                "marked_to_market": marked_to_market,
+                "pnl": self.pnl,
+                "inventory_reward": self.inventory_reward,
+                "reward": self.pnl + self.inventory_reward,
+            }
+        else:
+            return {}        
 
 
 
