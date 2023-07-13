@@ -12,23 +12,34 @@
 
 # requires python==3.8 which comes with pip version 19.2.3
 
-# requirements from 'abides/requirements.txt'
+# start: requirements from 'abides/requirements.txt'
+
 coloredlogs==15.0.1
 gym==0.18.0
 numpy==1.22.0
 pandas==1.2.4
 pomegranate==0.14.5
 psutil==5.8.0
-#ray[rllib]==1.7.0
+imageio==2.9.0
+#####
+# for compatibility with ray dependencies and scipy
+scikit-image==0.18.3 
+ray[rllib]==1.8.0
+#####
 scipy==1.7.0
 tqdm==4.61.1
 
-# further requirements for 'SignatureQLearning'
+# end: requirements from 'abides/requirements.txt'
+
+# start: further requirements for 'SignatureQLearning'
+
 torch==1.6.0 
 torchvision==0.7.0
 signatory==1.2.3.1.6.0
 matplotlib==3.7.1
 jupyter==1.0.0
+
+# end: further requirements for 'SignatureQLearning'
 
 
 # for later versions of <signatory> the install options
