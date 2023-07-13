@@ -230,7 +230,8 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
             starting_cash=self.starting_cash,
             state_buffer_length=self.state_history_length,
             market_data_buffer_length=self.market_data_buffer_length,
-            first_interval=self.first_interval,
+            #first_interval=self.first_interval,
+            # TODO: use data in first intervall for first action selection
         )
 
         # ACTION SPACE
