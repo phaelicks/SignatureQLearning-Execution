@@ -72,7 +72,72 @@ def train(
                 step_counter += 1
                 continue
             
+            history_signature = policy.update_signature(
+                torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0)
+                )
+            Q = policy(history_signature)[0] # unwrap from batch dimension
+            if np.random.rand(1) < epsilon:
+                action = np.random.randint(0, env.action_space.n)
+            else:
+                _, action = torch.max(Q, -1)
+                action = action.item()
+
+            observation_1, reward, done, _ = env.step(action)
+            new_tuple = np.array([observation_1, action])
+            history.append(new_tuple)
+            if (window_length != None) and (len(history > window_length)):
+                history.popleft()
             
+            history_signature = policy.update_signature(
+                torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0)
+                )
+            
+            Q_target = torch.tensor(reward, dtype=torch.float)            
+            if not done:
+                Q1 = policy(history_signature)[0]  # unwrap from batch dimension
+                maxQ1, _ = torch.max(Q1, -1)
+                Q_target += torch.mul(maxQ1, discount)
+            Q_target.detach_()
+            
+            loss = loss_fn(Q[action], Q_target)
+            policy.zero_grad()
+            loss.backward()
+            # clip gradient to improve robustness
+            #nn.utils.clip_grad_value_(policy.parameters(), 1)
+            #nn.utils.clip_grad_norm_(policy.parameters(), 0.25, 2)
+            optimizer.step()         
+            
+            episode_loss += loss.item()
+            episode_reward += reward
+
+        # take steps
+        scheduler.step()
+        epsilon = initial_epsilon * epsilon_decay(episode)
+
+        # Record history
+        loss_history.append(episode_loss)
+        reward_history.append(episode_reward)
+
+        env.close()
+        # TODO: implement env.close() to reset initernal variables for reset
+
+        if (episode+1) % 1000 == 0:
+            optimizer = optim.Adam(policy.parameters(), lr=learning_rate)
+            scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=learning_rate_decay)
+            #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.999)
+
+        if (episode+1) % 500 == 0:
+            policy_copy = copy.deepcopy(policy.state_dict())
+            intermediate_policies.append(policy_copy)
+
+
+    return (reward_history, loss_history, intermediate_policies)
+
+
+
+
+
+
             
 
 
