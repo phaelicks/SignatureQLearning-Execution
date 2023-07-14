@@ -5,8 +5,9 @@ import torch.optim as optim
 from collections import deque
 import sys
 import tqdm
-import copy
-from typing import Optional
+from copy import deepcopy
+from typing import Optional, Dict, List
+from math import floor
 
 
 def train(
@@ -19,7 +20,7 @@ def train(
         epsilon: float = 0.2, 
         epsilon_decay = lambda step: 1,
         window_length: Optional[int] = None
-): 
+) -> Dict[str, List]: 
     initial_epsilon: float = epsilon 
     loss_history = []
     reward_history = []
@@ -34,7 +35,7 @@ def train(
     
     # compute first_intervall steps to solely observe
     do_nothing_steps = (
-        env.first_intervall / env.timestep_duration
+        floor(env.first_intervall / env.timestep_duration)
     )
 
     pbar = tqdm.trange(episodes, file=sys.stdout)
@@ -51,11 +52,11 @@ def train(
         if window_length != None:
             assert window_length > 0, "History window length must be a positive integer."
 
-
         initial_tuple_tensor = torch.tensor(
             initial_tuple, requires_grad=False, dtype=torch.float
         ).unsqueeze(0)
 
+        # initialize signature variable
         history_signature = policy.update_signature(initial_tuple_tensor)
         last_tuple = initial_tuple
 
@@ -64,6 +65,7 @@ def train(
         step_counter = 0
         while not done:
             if step_counter < do_nothing_steps:
+            # agent only observes 
                 action = 9 # do nothing
                 observation, _, _, _ = env.step(action)
                 history.append(observation)
@@ -72,9 +74,12 @@ def train(
                 step_counter += 1
                 continue
             
-            history_signature = policy.update_signature(
-                torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0)
+            if step_counter == do_nothing_steps:
+            # calculate first signature for observed history
+                history_signature = policy.update_signature(
+                    torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0)
                 )
+
             Q = policy(history_signature)[0] # unwrap from batch dimension
             if np.random.rand(1) < epsilon:
                 action = np.random.randint(0, env.action_space.n)
@@ -82,15 +87,16 @@ def train(
                 _, action = torch.max(Q, -1)
                 action = action.item()
 
-            observation_1, reward, done, _ = env.step(action)
-            new_tuple = np.array([observation_1, action])
+            observation, reward, done, _ = env.step(action)
+            new_tuple = np.array([observation, action])
             history.append(new_tuple)
             if (window_length != None) and (len(history > window_length)):
                 history.popleft()
             
             history_signature = policy.update_signature(
                 torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0)
-                )
+            )
+            # TODO: find way to compute signature of shortened path via Chen
             
             Q_target = torch.tensor(reward, dtype=torch.float)            
             if not done:
@@ -119,7 +125,6 @@ def train(
         reward_history.append(episode_reward)
 
         env.close()
-        # TODO: implement env.close() to reset initernal variables for reset
 
         if (episode+1) % 1000 == 0:
             optimizer = optim.Adam(policy.parameters(), lr=learning_rate)
@@ -127,11 +132,15 @@ def train(
             #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.999)
 
         if (episode+1) % 500 == 0:
-            policy_copy = copy.deepcopy(policy.state_dict())
+            policy_copy = deepcopy(policy.state_dict())
             intermediate_policies.append(policy_copy)
 
-
-    return (reward_history, loss_history, intermediate_policies)
+    results = {
+        "rewards": reward_history,
+        "losses": loss_history,
+        "intermediate": intermediate_policies
+    }
+    return results
 
 
 
