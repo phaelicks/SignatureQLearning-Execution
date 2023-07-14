@@ -31,7 +31,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         - state_history_length: length of the raw state buffer
         - market_data_buffer_length: length of the market data buffer
         - first_interval: how long the simulation is run before the first wake up of the gym experimental agent
-        - last_intervall: how long before market close the gym experimental agent stops trading
+        - last_interval: how long before market close the gym experimental agent stops trading
         TODO: implement functionality to stop at mkt_clos - last_intervall
         - max_inventory: absolute value of maximum inventory the experimental gym agent is allowed to accumulate
         - leftover_inventory_reward: a constant penalty per unit of inventory at market close
@@ -213,6 +213,8 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
             False,
         ], "debug_mode needs to be True or False"                
 
+        self.observe_interval: NanosecondTime = self.first_interval
+        self.first_interval = str_to_ns("00:05:00") 
 
         # BACKGROUND CONFIG
         background_config_args = {"end_time": self.mkt_close}
@@ -230,7 +232,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
             starting_cash=self.starting_cash,
             state_buffer_length=self.state_history_length,
             market_data_buffer_length=self.market_data_buffer_length,
-            #first_interval=self.first_interval,
+            first_interval=self.first_interval, # length zero if observe_first_intervall True
             # TODO: use data in first intervall for first action selection
         )
 
@@ -496,23 +498,23 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         ]
         if len(inter_wakeup_executed_orders) == 0:
             pnl = 0
-            print("no orders executed")
+            #print("no orders executed")
         else: 
             pnl = 0
             for order in inter_wakeup_executed_orders:
                 #print(order)
                 # with previous mid prices
-                if order.side.is_bid():
-                    print("limit buy reward:", (self.previous_mid_price - order.fill_price) * order.quantity)
-                else: 
-                    print("limit sell reward:", (order.fill_price - self.previous_mid_price) * order.quantity)
+                #if order.side.is_bid():
+                #    print("limit buy reward:", (self.previous_mid_price - order.fill_price) * order.quantity)
+                #else: 
+                #    print("limit sell reward:", (order.fill_price - self.previous_mid_price) * order.quantity)
                 pnl += (
                     (self.previous_mid_price - order.fill_price) * order.quantity
                     if order.side.is_bid()
                     else 
                     (order.fill_price - self.previous_mid_price) * order.quantity
                 )
-        print("next")
+        #print("next")
         self.pnl = pnl
 
         # 2) change in inventory value

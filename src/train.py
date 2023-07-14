@@ -33,9 +33,10 @@ def train(
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=learning_rate_decay)
     #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.995)
     
-    # compute first_intervall steps to solely observe
+    # compute first_interval steps to solely observe
+
     do_nothing_steps = (
-        floor(env.first_intervall / env.timestep_duration)
+        floor(env.observe_interval / env.timestep_duration)
     )
 
     pbar = tqdm.trange(episodes, file=sys.stdout)
@@ -43,9 +44,9 @@ def train(
         episode_loss = 0
         episode_reward = 0
 
-        observation = env.reset() # gym 0.18.0 returns only state at reset
+        observation = env.reset()[:,0] # as row vector, gym 0.18.0 returns only state at reset
         action = 9 # do nothing
-        initial_tuple = np.array([observation, action])
+        initial_tuple = np.hstack((observation, action))
 
         history = deque()
         history.append(initial_tuple)
@@ -53,7 +54,7 @@ def train(
             assert window_length > 0, "History window length must be a positive integer."
 
         initial_tuple_tensor = torch.tensor(
-            initial_tuple, requires_grad=False, dtype=torch.float
+            [initial_tuple], requires_grad=False, dtype=torch.float
         ).unsqueeze(0)
 
         # initialize signature variable
@@ -66,19 +67,25 @@ def train(
         while not done:
             if step_counter < do_nothing_steps:
             # agent only observes 
-                action = 9 # do nothing
                 observation, _, _, _ = env.step(action)
-                history.append(observation)
-                if (window_length != None) and (len(history > window_length)):
+                action = 9 # next action is 'do nothing'
+                observation = observation[:,0]
+                new_tuple = np.hstack((observation, action))
+                history.append(new_tuple)
+                if (window_length != None) and (len(history) > window_length):
                     history.popleft()
                 step_counter += 1
+                if step_counter == do_nothing_steps:
+                    # calculate first signature for observed history
+                    history_signature = policy.update_signature(
+                        torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0)
+                    )
+                    print(history_signature.shape)
+                    print(history_signature)
                 continue
             
-            if step_counter == do_nothing_steps:
-            # calculate first signature for observed history
-                history_signature = policy.update_signature(
-                    torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0)
-                )
+            # TODO: discard first observation ot have (action, observation) tuples
+            # TODO: loop through actions to get their Q values
 
             Q = policy(history_signature)[0] # unwrap from batch dimension
             if np.random.rand(1) < epsilon:
@@ -88,7 +95,8 @@ def train(
                 action = action.item()
 
             observation, reward, done, _ = env.step(action)
-            new_tuple = np.array([observation, action])
+            observation = observation[:,0]
+            new_tuple = np.hstack((observation, action))
             history.append(new_tuple)
             if (window_length != None) and (len(history > window_length)):
                 history.popleft()

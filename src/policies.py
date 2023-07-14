@@ -5,12 +5,12 @@ import torch.nn.functional as F
 import numpy as np
 
 class SigPolicy(nn.Module):
-    def __init__(self, sig_depth, env): 
-        #self.first_intervall = env.first_intervall
-        #self.timestep_duration = env.timestep_duration
-        #self.steps_before_action = self.first_intervall / self.timestep_duration
-
-        self.in_channels = env.observation_space.n + 1 # add action
+    def __init__(self, env, sig_depth): 
+        super().__init__()
+        assert (
+            env.observation_space.shape[1] == 1
+        ), "Observation space variables must be scalars"
+        self.in_channels = env.observation_space.shape[0] + 1 # add action
         self.out_dimension = env.action_space.n
         self.sig_depth = sig_depth
         self.sig_channels = signatory.signature_channels(channels=self.in_channels,
@@ -19,7 +19,6 @@ class SigPolicy(nn.Module):
         #self.linear1 = torch.nn.Linear(self.sig_channels, 32, bias=True)
         #self.linear2 = torch.nn.Linear(32, out_dimension, bias = True)
 
-        super().__init__()
 
     def forward(self, signature):
         """ 
