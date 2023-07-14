@@ -654,7 +654,25 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
                 "reward": self.pnl + self.inventory_reward,
             }
         else:
-            return {}        
+            return {}   
+
+    def close(self) -> None:
+        """
+        Closes the environment and performs necassary clean up such as setting internal
+        variables to initial value for next reset call.
+        """    
+        # set internatl variables to zero for next episode
+        self.current_inventory = 0
+        self.previous_mid_price = 0
+        self.current_inventory = 0
+        self.previous_inventory = 0
+        
+        # clean orderbook, set to empty
+        self.orderbook_dict = {
+            "asks": {"price": {}, "volume": {}},
+            "bids": {"price": {}, "volume": {}},
+        }
+        return
 
 
 
