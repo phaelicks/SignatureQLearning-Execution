@@ -245,7 +245,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
 
         # STATE SPACE
         # [remaining_time_pct, inventory_pct, mid_price, 
-        #   lagged_mid_price, imbalance_5, market_spread]
+        #   lagged_mid_price, imbalance_3, market_spread]
         self.num_state_features: int = 6
         
         # create state space "box"
