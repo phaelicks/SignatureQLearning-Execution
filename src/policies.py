@@ -6,12 +6,15 @@ import numpy as np
 
 class SigPolicy(nn.Module):
     def __init__(self, env, sig_depth): 
-        super().__init__()
         assert (
             env.observation_space.shape[1] == 1
-        ), "Observation space variables must be scalars"
+        ), "Observation space variables must be scalars"        
+        
+        super().__init__()
+
         self.in_channels = env.observation_space.shape[0] + 1 # add action
-        self.out_dimension = env.action_space.n
+        self.out_dimension = 1
+        self.num_actions = env.action_space.n
         self.sig_depth = sig_depth
         self.sig_channels = signatory.signature_channels(channels=self.in_channels,
                                                          depth=sig_depth)
@@ -53,6 +56,7 @@ class SigPolicy(nn.Module):
             else: # return new signature 
                 return signatory.signature(path, depth=self.sig_depth)
         elif remove: # return signature of path shortened by :path:
+                # TODO: check if this functionality does as intendet
                 path = torch.flip(path, [0, 1]) # reverse path
                 sig_redundant = signature.signature(path, depth=self.sig_depth)
                 return signatory.signature_combine(sig_redundant, signature, 
@@ -60,6 +64,22 @@ class SigPolicy(nn.Module):
         else: # update signature
             return signatory.signature(path, depth=self.sig_depth,
                                        basepoint=basepoint, initial=signature) 
+
+    def create_Q_values(self, signature, last_tuple_tensor, new_observation):
+        Q = []
+        for action in range(self.num_actions):
+            new_tuple = np.hstack((new_observation, action))
+            new_tuple_tensor = torch.tensor(
+                [new_tuple], requires_grad=False, dtype=torch.float
+            )
+            new_path = torch.cat((last_tuple_tensor, new_tuple_tensor), 0).unsqueeze(0)
+            signature_1 = self.update_signature(new_path, last_tuple_tensor, signature)
+            action_value = self.forward(signature_1)[0] # unwrap from batch dimension
+            Q.append(action_value)
+        return torch.cat(Q, 0)
+        
+            
+
 
     def initialize_parameters(self, uniform=None, factor=None, zero_bias=True):
         # weights
