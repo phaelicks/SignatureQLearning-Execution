@@ -431,8 +431,8 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         ]
         mid_price = mid_prices[-1]
         self.current_mid_price = mid_price # save for reward calculation
-        mid_price_norm = mid_price / 100_000
-        lagged_mid_price_norm = self.previous_mid_price / 100_000
+        mid_price_norm = mid_price / 100_000 # normalize for state variable
+        lagged_mid_price_norm = self.previous_mid_price / 100_000 # normalize for state variable
 
         # 4) volume imbalance
         imbalances_3_buy = [
@@ -509,31 +509,31 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
                 #else: 
                 #    print("limit sell reward:", (order.fill_price - self.previous_mid_price) * order.quantity)
                 pnl += (
-                    (self.previous_mid_price - order.fill_price) * order.quantity
+                    (self.previous_mid_price - order.fill_price) * order.quantity / (self.order_fixed_size)
                     if order.side.is_bid()
                     else 
-                    (order.fill_price - self.previous_mid_price) * order.quantity
+                    (order.fill_price - self.previous_mid_price) * order.quantity / (self.order_fixed_size)
                 )
         #print("next")
         self.pnl = pnl
 
         # 2) change in inventory value
-        mid_price_change = self.current_mid_price - self.previous_mid_price
-        inventory_reward = self.previous_inventory * mid_price_change
+        mid_price_change = (self.current_mid_price - self.previous_mid_price) 
+        inventory_reward = self.previous_inventory * mid_price_change / self.max_inventory
         # damp reward component
         if self.damp_mode == "asymmetric":
             inventory_reward *= (1 - self.inventory_reward_dampener)
         elif self.damp_mode == "symmetric":
             inventory_reward -= max(
                 0,
-                self.inventory_reward_dampener * self.previous_inventory * mid_price_change
+                self.inventory_reward_dampener * self.previous_inventory * mid_price_change / self.max_inventory
             )
         self.inventory_reward = inventory_reward
 
         # TODO: normalize for order size and max inventory?
         #reward = pnl / self.order_fixed_size + inventory_change / self.max_inventory
         
-        reward = pnl #+ inventory_reward
+        reward =  pnl + inventory_reward
         return reward
 
     @raw_state_pre_process

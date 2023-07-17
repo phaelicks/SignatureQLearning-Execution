@@ -19,7 +19,8 @@ def train(
         learning_rate_decay = lambda step: 1,
         epsilon: float = 0.2, 
         epsilon_decay = lambda step: 1,
-        window_length: Optional[int] = None
+        window_length: Optional[int] = None,
+        printing: bool = False
 ) -> Dict[str, List]: 
     initial_epsilon: float = epsilon 
     loss_history = []
@@ -122,6 +123,8 @@ def train(
             # take action
             observation, reward, done, _ = env.step(action)
             observation = observation[:,0]
+            if printing:
+                print("reward:", reward)
             
             Q_target = torch.tensor(reward, dtype=torch.float)            
             if not done:
@@ -131,6 +134,8 @@ def train(
             Q_target.detach_()
             
             loss = loss_fn(Q[action], Q_target)
+            if printing:
+                print("loss:", loss)
             policy.zero_grad()
             loss.backward()
             # clip gradient to improve robustness
@@ -143,6 +148,10 @@ def train(
 
             if not done:
                 last_tuple_tensor = next_tuple_tensor
+                step_counter += 1
+                if step_counter % 100 == 0:
+                    print("Epsiode {} | step {} | reward {} | loss {}".format(
+                        episode, step_counter, episode_reward, episode_loss))
 
         # take steps
         scheduler.step()
@@ -151,6 +160,7 @@ def train(
         # Record history
         loss_history.append(episode_loss)
         reward_history.append(episode_reward)
+        action_history.append(episode_actions)
 
         env.close()
 
@@ -166,7 +176,8 @@ def train(
     results = {
         "rewards": reward_history,
         "losses": loss_history,
-        "intermediate": intermediate_policies
+        "intermediate": intermediate_policies,
+        "actions": action_history
     }
     return results
 

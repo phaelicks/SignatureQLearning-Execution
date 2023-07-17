@@ -77,7 +77,6 @@ class SigPolicy(nn.Module):
             action_value = self.forward(signature_1)[0] # unwrap from batch dimension
             Q.append(action_value)
         return torch.cat(Q, 0)
-        
             
 
 
