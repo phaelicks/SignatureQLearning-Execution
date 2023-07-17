@@ -27,11 +27,12 @@ def train(
     reward_history = []
     intermediate_policies = []   
     action_history = []
+    decay_step_counter = 0
+
 
     # CHECK PROPERTIES
     if window_length != None:
         assert window_length > 0, "History window length must be a positive integer."
-    
     
     # GRADIENT DESCENT DETAILS
     loss_fn = nn.SmoothL1Loss() # nn.MSELoss()
@@ -107,6 +108,14 @@ def train(
                 action = action.item()
             episode_actions.append(action)
 
+            """
+            new_t = np.hstack((observation, action))
+            new_t_t = torch.tensor([new_t], requires_grad = False, dtype=torch.float)
+            new_p = torch.cat((last_tuple_tensor, new_t_t), 0).unsqueeze(0)
+            signature_1 = policy.update_signature(new_p, last_tuple_tensor, history_signature)
+            Q_selected = policy(signature_1)[0][0]
+            """
+
             # add (o,a) tuple to history
             next_tuple = np.hstack((observation, action))
             next_tuple_tensor = torch.tensor(
@@ -121,10 +130,13 @@ def train(
             # TODO: find way to compute signature of shortened path via Chen
 
             # take action
-            observation, reward, done, _ = env.step(action)
+            observation, reward, done, info = env.step(action)
             observation = observation[:,0]
             if printing:
                 print("reward:", reward)
+                print("pnl:", info["pnl"])
+                print("inv reward:", info["inventory_reward"])
+                print("inventors:", info["inventory"])
             
             Q_target = torch.tensor(reward, dtype=torch.float)            
             if not done:
@@ -134,33 +146,44 @@ def train(
             Q_target.detach_()
             
             loss = loss_fn(Q[action], Q_target)
+            #loss = loss_fn(Q_selected, Q_target)
             if printing:
                 print("loss:", loss)
             policy.zero_grad()
             loss.backward()
             # clip gradient to improve robustness
-            #nn.utils.clip_grad_value_(policy.parameters(), 1)
+            nn.utils.clip_grad_value_(policy.parameters(), 1)
             #nn.utils.clip_grad_norm_(policy.parameters(), 0.25, 2)
             optimizer.step()         
             
             episode_loss += loss.item()
             episode_reward += reward
+            step_counter += 1
+
+            # take steps
+            scheduler.step()
+            decay_step_counter += 1
+            epsilon = initial_epsilon * epsilon_decay(decay_step_counter)
 
             if not done:
                 last_tuple_tensor = next_tuple_tensor
-                step_counter += 1
-                if step_counter % 100 == 0:
-                    print("Epsiode {} | step {} | reward {} | loss {}".format(
-                        episode, step_counter, episode_reward, episode_loss))
+            
+            if done or step_counter % 200 == 0:
+                print(
+                    "Epsiode {} | step {} | reward {} | loss {}".format(
+                        episode, step_counter, episode_reward, episode_loss
+                    )
+                )
 
         # take steps
-        scheduler.step()
-        epsilon = initial_epsilon * epsilon_decay(episode)
+        #scheduler.step()
+        #epsilon = initial_epsilon * epsilon_decay(episode)
 
         # Record history
         loss_history.append(episode_loss)
         reward_history.append(episode_reward)
-        action_history.append(episode_actions)
+        if (episode+1) % 10 == 0:
+            action_history.append(episode_actions)
 
         env.close()
 
@@ -169,7 +192,7 @@ def train(
             scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=learning_rate_decay)
             #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.999)
 
-        if (episode+1) % 500 == 0:
+        if (episode+1) % 10 == 0:
             policy_copy = deepcopy(policy.state_dict())
             intermediate_policies.append(policy_copy)
 

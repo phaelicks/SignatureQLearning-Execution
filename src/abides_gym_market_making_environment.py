@@ -131,12 +131,12 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
             0: {"BID": 1, "ASK": 1},
             1: {"BID": 2, "ASK": 2},
             2: {"BID": 3, "ASK": 3},
-            3: {"BID": 4, "ASK": 4},
-            4: {"BID": 5, "ASK": 5},
+            3: {"BID": 1, "ASK": 2},
+            4: {"BID": 2, "ASK": 1},
             5: {"BID": 1, "ASK": 3},
             6: {"BID": 3, "ASK": 1},
-            7: {"BID": 2, "ASK": 5},
-            8: {"BID": 5, "ASK": 2},
+            7: {"BID": 2, "ASK": 3},
+            8: {"BID": 3, "ASK": 2},
         }
 
         # CHECK PROPERTIES
@@ -509,10 +509,10 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
                 #else: 
                 #    print("limit sell reward:", (order.fill_price - self.previous_mid_price) * order.quantity)
                 pnl += (
-                    (self.previous_mid_price - order.fill_price) * order.quantity / (self.order_fixed_size)
+                    (self.previous_mid_price - order.fill_price) * order.quantity / (100 * self.order_fixed_size)
                     if order.side.is_bid()
                     else 
-                    (order.fill_price - self.previous_mid_price) * order.quantity / (self.order_fixed_size)
+                    (order.fill_price - self.previous_mid_price) * order.quantity / (100 * self.order_fixed_size)
                 )
         #print("next")
         self.pnl = pnl
@@ -533,7 +533,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         # TODO: normalize for order size and max inventory?
         #reward = pnl / self.order_fixed_size + inventory_change / self.max_inventory
         
-        reward =  pnl + inventory_reward
+        reward = pnl + inventory_reward
         return reward
 
     @raw_state_pre_process
@@ -640,7 +640,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
                 "asks": asks,
                 "cash": cash,
                 "current_time": current_time,
-                "holdings": holdings,
+                "inventory": holdings,
                 "orderbook": orderbook,
                 "order_status": order_status,
                 "mkt_open": mkt_open,
@@ -656,7 +656,9 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
                 "reward": self.pnl + self.inventory_reward,
             }
         else:
-            return {}   
+            return {
+                "inventory": holdings,
+            }   
 
     def close(self) -> None:
         """

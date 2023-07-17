@@ -74,7 +74,7 @@ class SigPolicy(nn.Module):
             )
             new_path = torch.cat((last_tuple_tensor, new_tuple_tensor), 0).unsqueeze(0)
             signature_1 = self.update_signature(new_path, last_tuple_tensor, signature)
-            action_value = self.forward(signature_1)[0] # unwrap from batch dimension
+            action_value = self(signature_1)[0] # unwrap from batch dimension
             Q.append(action_value)
         return torch.cat(Q, 0)
             
