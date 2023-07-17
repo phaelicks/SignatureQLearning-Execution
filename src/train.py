@@ -168,7 +168,7 @@ def train(
             if not done:
                 last_tuple_tensor = next_tuple_tensor
             
-            if done or step_counter % 200 == 0:
+            if done:# or step_counter % 200 == 0:
                 print(
                     "Epsiode {} | step {} | reward {} | loss {}".format(
                         episode, step_counter, episode_reward, episode_loss
