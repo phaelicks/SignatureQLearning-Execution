@@ -114,8 +114,8 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         self.current_inventory: int = 0
 
         # track mid prices for reward calculation
-        self.current_mid_price: float = 0
-        self.previous_mid_price: float = 0
+        self.current_mid_price: int = 100_000
+        self.previous_mid_price: int = 100_000
 
         # dict for current prices up to level 5 for action translation
         # will be filled in raw_state_to_state function
@@ -214,7 +214,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         ], "debug_mode needs to be True or False"                
 
         self.observe_interval: NanosecondTime = self.first_interval
-        self.first_interval = str_to_ns("00:05:00") 
+        self.first_interval = str_to_ns("00:03:00") 
 
         # BACKGROUND CONFIG
         background_config_args = {"end_time": self.mkt_close}
@@ -398,7 +398,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         last_asks = asks[-1]
         for book, book_name in [(last_bids, "bids"), (last_asks, "asks")]:
             for level in [1, 2, 3, 4, 5]:
-                price, volume = markets_agent_utils.get_val(book, level)
+                price, volume = markets_agent_utils.get_val(book, level-1) # indexing starts at 0
                 self.orderbook_dict[book_name]["price"][level] = np.array([price]).reshape(-1)
                 self.orderbook_dict[book_name]["volume"][level] = np.array([volume]).reshape(-1)
                 #TODO: why as np.array? Does this work with action translation?
@@ -433,6 +433,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         self.current_mid_price = mid_price # save for reward calculation
         mid_price_norm = mid_price / 100_000 # normalize for state variable
         lagged_mid_price_norm = self.previous_mid_price / 100_000 # normalize for state variable
+        #mid_price_diff = (self.mid_price - self.lagged_mid_price) * 1000
 
         # 4) volume imbalance
         imbalances_3_buy = [
@@ -509,21 +510,21 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
                 #else: 
                 #    print("limit sell reward:", (order.fill_price - self.previous_mid_price) * order.quantity)
                 pnl += (
-                    (self.previous_mid_price - order.fill_price) * order.quantity / (100 * self.order_fixed_size)
+                    (self.previous_mid_price - order.fill_price) * order.quantity / (self.order_fixed_size * 100) # *100)
                     if order.side.is_bid()
                     else 
-                    (order.fill_price - self.previous_mid_price) * order.quantity / (100 * self.order_fixed_size)
+                    (order.fill_price - self.previous_mid_price) * order.quantity / ( self.order_fixed_size * 100) # *100)
                 )
         #print("next")
         self.pnl = pnl
 
         # 2) change in inventory value
-        mid_price_change = (self.current_mid_price - self.previous_mid_price) 
+        mid_price_change = (self.current_mid_price - self.previous_mid_price) / 100
         inventory_reward = self.previous_inventory * mid_price_change / self.max_inventory
         # damp reward component
-        if self.damp_mode == "asymmetric":
+        if self.damp_mode == "symmetric":
             inventory_reward *= (1 - self.inventory_reward_dampener)
-        elif self.damp_mode == "symmetric":
+        elif self.damp_mode == "asymmetric":
             inventory_reward -= max(
                 0,
                 self.inventory_reward_dampener * self.previous_inventory * mid_price_change / self.max_inventory
@@ -569,6 +570,17 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         """
         # Agent cannot use this info for taking decision
         # only for debugging
+
+        if not self.debug_mode:
+            cash = raw_state["internal_data"]["cash"]
+            holdings = raw_state["internal_data"]["holdings"]
+            return {
+                "pnl": self.pnl,
+                "cash": cash,
+                "inventory": holdings,
+                "inventory_reward": self.inventory_reward
+            }
+
 
         # 1) Last Known Market Transaction Price
         last_transaction = raw_state["parsed_mkt_data"]["last_transaction"]
@@ -666,8 +678,8 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         variables to initial value for next reset call.
         """    
         # set internatl variables to zero for next episode
-        self.current_inventory = 0
-        self.previous_mid_price = 0
+        self.current_mid_price = 100_000
+        self.previous_mid_price = 100_000
         self.current_inventory = 0
         self.previous_inventory = 0
         

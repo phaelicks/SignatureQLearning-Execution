@@ -52,7 +52,6 @@ class SigPolicy(nn.Module):
             if path.shape[1] == 1: # only one observation, return zeros
                 return signatory.signature(path, depth=self.sig_depth,
                                            basepoint = path.squeeze(0)) # alternatively set basepoint=True                         
-                                           #basepoint=torch.tensor([[-0.5, 1.]],dtype=torch.float)) 
             else: # return new signature 
                 return signatory.signature(path, depth=self.sig_depth)
         elif remove: # return signature of path shortened by :path:
@@ -67,8 +66,8 @@ class SigPolicy(nn.Module):
 
     def create_Q_values(self, signature, last_tuple_tensor, new_observation):
         Q = []
-        for action in range(self.num_actions):
-            new_tuple = np.hstack((new_observation, action))
+        for action in range(self.num_actions-1):
+            new_tuple = np.hstack((new_observation, action / 10))
             new_tuple_tensor = torch.tensor(
                 [new_tuple], requires_grad=False, dtype=torch.float
             )

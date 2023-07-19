@@ -25,8 +25,11 @@ def train(
     initial_epsilon: float = epsilon 
     loss_history = []
     reward_history = []
+    cash_history = []
+    terminal_inventory = []
     intermediate_policies = []   
     action_history = []
+    inventory_history = []
     decay_step_counter = 0
 
 
@@ -52,10 +55,11 @@ def train(
         episode_loss = 0
         episode_reward = 0
         episode_actions = []
+        episode_inventory = []
 
         observation = env.reset()[:,0] # as row vector, gym 0.18.0 returns only state at reset
-        action = 9 # do nothing
-        initial_tuple = np.hstack((observation, action))
+        action = 10 # do nothing
+        initial_tuple = np.hstack((observation, action / 10))
         episode_actions.append(action)
 
         history = deque(maxlen=window_length)
@@ -79,8 +83,8 @@ def train(
         while not done:
             if step_counter < do_nothing_steps:
                 # agent only observes 
-                action = 9 # next action is 'do nothing'
-                new_tuple = np.hstack((observation, action))
+                action = 10 # next action is 'do nothing'
+                new_tuple = np.hstack((observation, action / 10))
                 history.append(new_tuple)
                 episode_actions.append(action)
 
@@ -102,7 +106,7 @@ def train(
             # create Q values and select action
             Q = policy.create_Q_values(history_signature, last_tuple_tensor, observation)
             if np.random.rand(1) < epsilon:
-                action = np.random.randint(0, env.action_space.n)
+                action = np.random.randint(0, env.action_space.n-1)
             else:
                 _, action = torch.max(Q, -1)
                 action = action.item()
@@ -117,34 +121,42 @@ def train(
             """
 
             # add (o,a) tuple to history
-            next_tuple = np.hstack((observation, action))
+            next_tuple = np.hstack((observation, action / 10))
             next_tuple_tensor = torch.tensor(
                 [next_tuple], requires_grad=False, dtype=torch.float
             )                     
 
             # update history and signature
             history.append(next_tuple) # pops left if maxlen != None               
-            history_signature = policy.update_signature(
-                torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0)
-            )
+            if window_length == None:
+                new_path = torch.cat((next_tuple_tensor, last_tuple_tensor), 0).unsqueeze(0)
+                history_signature = policy.update_signature(new_path, last_tuple_tensor, history_signature)
+            else: 
+                history_signature = policy.update_signature(
+                    torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0)
+                )
+            #print(history_signature)
             # TODO: find way to compute signature of shortened path via Chen
 
             # take action
             observation, reward, done, info = env.step(action)
             observation = observation[:,0]
             if printing:
-                print("reward:", reward)
-                print("pnl:", info["pnl"])
-                print("inv reward:", info["inventory_reward"])
-                print("inventors:", info["inventory"])
-            
-            Q_target = torch.tensor(reward, dtype=torch.float)            
+                print("reward: {} | pnl: {} | inv reward: {} | inventory {}".format(
+                    reward, info["pnl"], info["inventory_reward"], info["inventory"]
+                )
+            )
+
+            episode_inventory.append(info["inventory"])
+
+            Q_target = torch.tensor(reward, requires_grad=False, dtype=torch.float)            
             if not done:
                 Q1 = policy.create_Q_values(history_signature, next_tuple_tensor, observation)
                 maxQ1, _ = torch.max(Q1, -1)
                 Q_target += torch.mul(maxQ1, discount)
             Q_target.detach_()
             
+            #print(Q[action])
             loss = loss_fn(Q[action], Q_target)
             #loss = loss_fn(Q_selected, Q_target)
             if printing:
@@ -152,7 +164,7 @@ def train(
             policy.zero_grad()
             loss.backward()
             # clip gradient to improve robustness
-            nn.utils.clip_grad_value_(policy.parameters(), 1)
+            #nn.utils.clip_grad_value_(policy.parameters(), 1)
             #nn.utils.clip_grad_norm_(policy.parameters(), 0.25, 2)
             optimizer.step()         
             
@@ -165,15 +177,19 @@ def train(
             decay_step_counter += 1
             epsilon = initial_epsilon * epsilon_decay(decay_step_counter)
 
-            if not done:
+            if done:
+                cash_history.append(info["cash"])
+                terminal_inventory.append(info["inventory"])
+            else:
                 last_tuple_tensor = next_tuple_tensor
             
-            if done:# or step_counter % 200 == 0:
+            if done or step_counter % 200 == 0:
                 print(
                     "Epsiode {} | step {} | reward {} | loss {}".format(
                         episode, step_counter, episode_reward, episode_loss
                     )
                 )
+                print("Q values:", Q)
 
         # take steps
         #scheduler.step()
@@ -182,8 +198,11 @@ def train(
         # Record history
         loss_history.append(episode_loss)
         reward_history.append(episode_reward)
-        if (episode+1) % 10 == 0:
+        if (episode+1) % 5 == 0:
             action_history.append(episode_actions)
+            inventory_history.append(episode_inventory)
+        #action_history.append(episode_actions)
+        #inventory_history.append(episode_inventory)
 
         env.close()
 
@@ -199,8 +218,12 @@ def train(
     results = {
         "rewards": reward_history,
         "losses": loss_history,
+        "cash": cash_history,
+        "terminal_inventory": terminal_inventory,
+        "actions": action_history,
+        "inventories": inventory_history,
+        "history": history,
         "intermediate": intermediate_policies,
-        "actions": action_history
     }
     return results
 
