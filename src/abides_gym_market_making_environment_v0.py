@@ -130,6 +130,13 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         self.lmt_spreads_dict: Dict [int, Dict[str, int]] = {
             0: {"BID": 1, "ASK": 1},
             1: {"BID": 2, "ASK": 2},
+            2: {"BID": 3, "ASK": 3},
+            3: {"BID": 1, "ASK": 2},
+            4: {"BID": 2, "ASK": 1},
+            5: {"BID": 1, "ASK": 3},
+            6: {"BID": 3, "ASK": 1},
+            7: {"BID": 2, "ASK": 3},
+            8: {"BID": 3, "ASK": 2},
         }
 
         # CHECK PROPERTIES
@@ -233,20 +240,23 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         # 9 LMT spreads order_fixed_size, 
         # MKT inventory * mkt_order_alpha
         # Do nothing
-        self.num_actions: int = 3
+        self.num_actions: int = 11
         self.action_space: gym.Space = gym.spaces.Discrete(self.num_actions)
 
         # STATE SPACE
         # [remaining_time_pct, inventory_pct, mid_price, 
         #   lagged_mid_price, imbalance_3, market_spread]
-        self.num_state_features: int = 3
+        self.num_state_features: int = 6
         
         # create state space "box"
         self.state_highs: np.ndarray = np.array(
             [
                 2, # remaining_time_pct
                 2, # inventory_pct
-                np.finfo(np.float32).max, # normalized mid_price
+                np.finfo(np.float32).max, # mid_price
+                np.finfo(np.float32).max, # lagged_mid_price
+                1, # imbalance_5
+                np.finfo(np.float32).max # market_spread
             ],
             dtype=np.float32,
         ).reshape(self.num_state_features, 1)
@@ -255,7 +265,10 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
             [
                 -2, # remaining_time_pct
                 -2, # inventory_pct
-                np.finfo(np.float32).min, # normalized mid_price
+                np.finfo(np.float32).min, # mid_price
+                np.finfo(np.float32).min, # lagged_mid_price
+                -1, # imbalance_5
+                np.finfo(np.float32).min # market_spread
             ],
             dtype=np.float32,
         ).reshape(self.num_state_features, 1)
@@ -276,10 +289,10 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         """
         utility function that maps OpenAI action definition (integers) 
         to environnement API action definition (list of dictionaries)
-        The action space ranges [0, 1, 2,] where:
-        - `0` LMT order pairs of order_fixed_size at best bid ask level
-        - `1` LMT order pairs of order_fixed_size at second best bid ask level
-        - '2' DO NOTHING
+        The action space ranges [0, 1, 2, 3, ..., 11] where:
+        - `0` - `9` LMT order pairs of order_fixed_size
+        - '10' MKT order of size (-mkt_order_alpha * inventory_t)
+        - '11' DO NOTHING
 
         Arguments:
             - action: integer representation of the different actions
@@ -289,7 +302,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         """
 
         # limit orders
-        if action in range(2):
+        if action in range(9):
             bid_lvl = self.lmt_spreads_dict[action]["BID"]
             ask_lvl = self.lmt_spreads_dict[action]["ASK"]
             
@@ -319,14 +332,26 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
                 raise ValueError(
                     f"Current inventory {self.current_inventory} does not match allowed values"
                 )
-        elif action == 2:
-            return []
-        else:
-            raise ValueError(
-                f"Action {action} is not part of the actions support by this environment."
-            )
-        """
-        elif action == 3:
+            """     
+            return [
+                {"type: CCL_ALL"}, # TODO: check order status, keep existing orders if on correct level
+                {
+                    "type": "LMT",
+                    "direction": "BUY",
+                    "size": self.order_fixed_size,
+                    "limit_price": self.orderbook_dict["bids"]["price"][bid_lvl]
+                    # orderbook_dict filled in raw_state_to_state
+                },
+                {
+                    "type": "LMT",
+                    "direction": "SELL",
+                    "size": self.order_fixed_size,
+                    "limit_price": self.orderbook_dict["asks"]["price"][ask_lvl]
+                    # orderbook_dict filled in raw_state_to_state
+                }
+            ]
+            """
+        elif action == 9:
             if self.current_inventory == 0: 
                 return []
             else:
@@ -340,7 +365,13 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
                         "size": mkt_order_size
                     }
                 ]
-        """                        
+        elif action == 10:
+            return []
+        else:
+            raise ValueError(
+                f"Action {action} is not part of the actions support by this environment."
+            )
+        
 
     @raw_state_to_state_pre_process
     def raw_state_to_state(self, raw_state: Dict[str, Any]) -> np.ndarray:
@@ -366,7 +397,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         last_bids = bids[-1]
         last_asks = asks[-1]
         for book, book_name in [(last_bids, "bids"), (last_asks, "asks")]:
-            for level in [1, 2]:
+            for level in [1, 2, 3, 4, 5]:
                 price, volume = markets_agent_utils.get_val(book, level-1) # indexing starts at 0
                 self.orderbook_dict[book_name]["price"][level] = np.array([price]).reshape(-1)
                 self.orderbook_dict[book_name]["volume"][level] = np.array([volume]).reshape(-1)
@@ -404,6 +435,29 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         lagged_mid_price_norm = self.previous_mid_price / 100_000 # normalize for state variable
         #mid_price_diff = (self.mid_price - self.lagged_mid_price) * 1000
 
+        # 4) volume imbalance
+        imbalances_3_buy = [
+            markets_agent_utils.get_imbalance(b, a, depth=3)
+            for (b, a) in zip(bids, asks)
+        ]
+        imbalances_3_sell = [
+            markets_agent_utils.get_imbalance(b, a, direction="SELL", depth=3)
+            for (b, a) in zip(bids, asks)
+        ]
+        imbalance_3 = imbalances_3_buy[-1] - imbalances_3_sell[-1] 
+
+        # 6) Spread
+        best_bids = [
+            bids[0][0] if len(bids) > 0 else mid
+            for (bids, mid) in zip(bids, mid_prices)
+        ]
+        best_asks = [
+            asks[0][0] if len(asks) > 0 else mid
+            for (asks, mid) in zip(asks, mid_prices)
+        ]
+
+        spreads = np.array(best_asks) - np.array(best_bids)
+        spread = spreads[-1]
 
         # log custom metrics to tracker
         # TODO: implement custom metrics tracker
@@ -414,6 +468,9 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
                 time_pct,
                 inventory_pct,
                 mid_price_norm,
+                lagged_mid_price_norm,
+                imbalance_3,
+                spread
             ], dtype=np.float32
         )
 
@@ -433,6 +490,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         # we define the reward as sum of two components (Spooner et al (2018)):
         #   1) value of executed orders since last step
         #   2) change in inventory value due to midprice fluctuations
+        # TODO: implement reward functions with and without inventory penalty
         # TODO: add spread as reward component instead of state variable
 
         # 1) value of executed orders relative to mid price
@@ -445,15 +503,21 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         else: 
             pnl = 0
             for order in inter_wakeup_executed_orders:
+                #print(order)
+                # with previous mid prices
+                #if order.side.is_bid():
+                #    print("limit buy reward:", (self.previous_mid_price - order.fill_price) * order.quantity)
+                #else: 
+                #    print("limit sell reward:", (order.fill_price - self.previous_mid_price) * order.quantity)
                 pnl += (
-                    (self.previous_mid_price - order.fill_price) * order.quantity / (self.order_fixed_size * 100)
+                    (self.previous_mid_price - order.fill_price) * order.quantity / (self.order_fixed_size * 100) # *100)
                     if order.side.is_bid()
                     else 
-                    (order.fill_price - self.previous_mid_price) * order.quantity / (self.order_fixed_size * 100)
+                    (order.fill_price - self.previous_mid_price) * order.quantity / ( self.order_fixed_size * 100) # *100)
                 )
+        #print("next")
         self.pnl = pnl
 
-        """
         # 2) change in inventory value
         mid_price_change = (self.current_mid_price - self.previous_mid_price) / 100
         inventory_reward = self.previous_inventory * mid_price_change / self.max_inventory
@@ -466,29 +530,17 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
                 self.inventory_reward_dampener * self.previous_inventory * mid_price_change / self.max_inventory
             )
         self.inventory_reward = inventory_reward
-        """
 
         # TODO: normalize for order size and max inventory?
         #reward = pnl / self.order_fixed_size + inventory_change / self.max_inventory
         
-        reward = pnl # + inventory_reward
+        reward = pnl + inventory_reward
         return reward
 
     @raw_state_pre_process
     def raw_state_to_update_reward(self, raw_state: Dict[str, Any]) -> float:
         # TODO: include terminal inventory penalty
-
-        # 1) inventory pct
-        inventory = raw_state["internal_data"]["holdings"]
-        inventory_pct = inventory / self.max_inventory
-
-        # 2) Last Known Market Transaction Price
-        last_transaction = raw_state["parsed_mkt_data"]["last_transaction"]
-
-        # 3) Calculate update reward
-        update_reward = inventory_pct * last_transaction / (self.order_fixed_size * 100)
-
-        return update_reward
+        return 0.
 
     @raw_state_pre_process
     def raw_state_to_done(self, raw_state: Dict[str, Any]) -> bool:
