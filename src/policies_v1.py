@@ -12,7 +12,7 @@ class SigPolicy(nn.Module):
         
         super().__init__()
 
-        self.in_channels = env.observation_space.shape[0] + 1 # add action
+        self.in_channels = env.observation_space.shape[0] # add action
         self.out_dimension = env.action_space.n
         self.num_actions = env.action_space.n
         self.sig_depth = sig_depth

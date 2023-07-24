@@ -100,9 +100,9 @@ def train(
                 )                
             
             # create Q values and select action
-            Q = policy(history_signature)
+            Q = policy(history_signature)[0]
             if np.random.rand(1) < epsilon:
-                action = np.random.randint(0, env.action_space.n-1)
+                action = np.random.randint(0, env.action_space.n)
             else:
                 _, action = torch.max(Q, -1)
                 action = action.item()
@@ -112,10 +112,13 @@ def train(
             observation, reward, done, info = env.step(action)
             observation = observation[:,0]
             if printing:
-                print("reward: {} | pnl: {} | inv reward: {} | inventory {}".format(
-                    reward, info["pnl"], info["inventory_reward"], info["inventory"]
+                print("reward: {} | pnl: {} | inventory {}".format(
+                    reward, info["pnl"], info["inventory"]
                 )
-            )    
+                )
+                if done: 
+                    print("update reward {}".format(reward - info["pnl"]))
+
             episode_inventory.append(info["inventory"])                
 
             # update history and signature
@@ -138,7 +141,7 @@ def train(
 
             Q_target = torch.tensor(reward, requires_grad=False, dtype=torch.float)            
             if not done:
-                Q1 = policy(history_signature)
+                Q1 = policy(history_signature)[0]
                 maxQ1, _ = torch.max(Q1, -1)
                 Q_target += torch.mul(maxQ1, discount)
             Q_target.detach_()
@@ -182,11 +185,11 @@ def train(
         # Record history
         loss_history.append(episode_loss)
         reward_history.append(episode_reward)
-        if (episode+1) % 5 == 0:
-            action_history.append(episode_actions)
-            inventory_history.append(episode_inventory)
-        #action_history.append(episode_actions)
-        #inventory_history.append(episode_inventory)
+        #if (episode+1) % 5 == 0 or episode == 0:
+        #    action_history.append(episode_actions)
+        #    inventory_history.append(episode_inventory)
+        action_history.append(episode_actions)
+        inventory_history.append(episode_inventory)
 
         if (episode+1) % 10 == 0:
             policy_copy = deepcopy(policy.state_dict())

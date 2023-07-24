@@ -366,8 +366,8 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
         last_bids = bids[-1]
         last_asks = asks[-1]
         for book, book_name in [(last_bids, "bids"), (last_asks, "asks")]:
-            for level in [1, 2]:
-                price, volume = markets_agent_utils.get_val(book, level-1) # indexing starts at 0
+            for level in [0, 1, 2]:
+                price, volume = markets_agent_utils.get_val(book, level) # indexing starts at 0
                 self.orderbook_dict[book_name]["price"][level] = np.array([price]).reshape(-1)
                 self.orderbook_dict[book_name]["volume"][level] = np.array([volume]).reshape(-1)
                 #TODO: why as np.array? Does this work with action translation?
@@ -481,13 +481,14 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
         # 1) inventory pct
         inventory = raw_state["internal_data"]["holdings"]
         inventory_pct = inventory / self.max_inventory
+        inventory_pct = abs(inventory_pct) if abs(inventory_pct) <= 1 else 1
 
         # 2) Last Known Market Transaction Price
         last_transaction = raw_state["parsed_mkt_data"]["last_transaction"]
 
         # 3) Calculate update reward
-        update_reward = inventory_pct * last_transaction / (self.order_fixed_size * 100)
-
+        update_reward = (1 - inventory_pct) ** 2 * 10
+        
         return update_reward
 
     @raw_state_pre_process
@@ -526,7 +527,7 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
                 "pnl": self.pnl,
                 "cash": cash,
                 "inventory": holdings,
-                "inventory_reward": self.inventory_reward
+                #"inventory_reward": self.inventory_reward
             }
 
         # 1) Last Known Market Transaction Price
