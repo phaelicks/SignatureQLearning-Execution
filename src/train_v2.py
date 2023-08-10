@@ -69,7 +69,6 @@ def train(
         episode_loss = 0
         episode_reward = 0
         episode_actions = []
-        episode_inventory = []
         episode_mid_prices = []
 
         history = deque(maxlen=window_length)
@@ -91,15 +90,13 @@ def train(
                 # agent only observes 
                 action = env.do_nothing_action_id # next action is 'do nothing'
                 episode_actions.append(action)
-
                 observation, _, _, _ = env.step(action)
                 observation = observation[:,0]
                 history.append(observation)
-
+                
                 last_observation_tensor = torch.tensor(
                     [observation], requires_grad=False, dtype=torch.float
                 )
-
                 do_nothing_counter += 1
                 continue
 
@@ -139,7 +136,6 @@ def train(
                 if done: 
                     print("update reward {}".format(reward - info["pnl"]))
 
-            episode_inventory.append(info["inventory"])     
             episode_mid_prices.append(info["mid_price"])           
 
             # update history and signature
@@ -206,10 +202,8 @@ def train(
         reward_history.append(episode_reward)
         #if (episode+1) % 5 == 0 or episode == 0:
         #    action_history.append(episode_actions)
-        #    inventory_history.append(episode_inventory)
         #    observation_histories.append(history)
         action_history.append(episode_actions)
-        inventory_history.append(episode_inventory)
         observation_histories.append(history)
         mid_price_history.append(episode_mid_prices)
 
