@@ -10,6 +10,7 @@ import tqdm
 from copy import deepcopy
 from typing import Optional, Dict, List
 from math import floor
+import warnings
 
 
 def train(
@@ -54,9 +55,12 @@ def train(
     #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.995)
     
     # compute first_interval steps to solely observe
-    do_nothing_steps = (
-        floor(env.observation_interval / env.timestep_duration)
-    )
+    try:
+        do_nothing_steps = (floor(env.observe_interval / env.timestep_duration))
+    except AttributeError:
+        warnings.warn("'env' admits no observation interval.")
+    finally:
+        do_nothing_steps = 0
 
     # TRAINING
     total_step_counter = 0
@@ -68,19 +72,14 @@ def train(
         episode_inventory = []
         episode_mid_prices = []
 
-        observation = env.reset()[:,0] # as row vector, gym 0.18.0 returns only state at reset
-        action = env.do_nothing_action_id # do nothing
-        episode_actions.append(action)
-
         history = deque(maxlen=window_length)
+
+        observation = env.reset()[:,0] # as row vector, gym 0.18.0 returns only state at reset
         history.append(observation)
 
         next_observation_tensor = torch.tensor(
             [observation], requires_grad=False, dtype=torch.float
         )
-
-        # initialize signature variable
-        history_signature = policy.update_signature(next_observation_tensor.unsqueeze(0))
         last_observation_tensor = next_observation_tensor
 
         done = False
@@ -95,13 +94,13 @@ def train(
 
                 observation, _, _, _ = env.step(action)
                 observation = observation[:,0]
+                history.append(observation)
+
                 last_observation_tensor = torch.tensor(
                     [observation], requires_grad=False, dtype=torch.float
                 )
 
-                history.append(observation)
                 do_nothing_counter += 1
-
                 continue
 
             if do_nothing_counter == do_nothing_steps:
@@ -123,7 +122,10 @@ def train(
                 m = Categorical(probs)
                 action = m.sample().item()                      
             
-            action = env.do_nothing_action_id if total_step_counter == 0 else action
+            if total_step_counter == 0:
+                try: action = env.do_nothing_action_id
+                except: pass
+
             episode_actions.append(action)
 
             # take action
