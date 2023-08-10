@@ -5,14 +5,17 @@ import torch.nn.functional as F
 import numpy as np
 
 class SigPolicy(nn.Module):
-    def __init__(self, env, sig_depth): 
+    def __init__(self, env, sig_depth, in_channels=None): 
         assert (
             env.observation_space.shape[1] == 1
         ), "Observation space variables must be scalars"        
         
         super().__init__()
 
-        self.in_channels = env.observation_space.shape[0] + 1 # add action
+        if in_channels == None:
+            self.in_channels = env.observation_space.shape[0] + 1 # add action
+        else: 
+            self.in_channels = in_channels
         self.out_dimension = 1
         self.num_actions = env.action_space.n
         self.sig_depth = sig_depth
@@ -82,16 +85,16 @@ class SigPolicy(nn.Module):
     def initialize_parameters(self, uniform=None, factor=None, zero_bias=True):
         # weights
         if uniform != None and factor != None:
-            raise RuntimeError("Choose either uniform or multiplicative factor.")
+            raise ValueError("Choose either uniform or multiplicative factor.")
         elif uniform != None:
             self.linear.weight.data.uniform_(-uniform, uniform)
             nn.init.xavier_uniform_(self.linear.weight)
         elif factor != None:
-            self.linear.weigh.data *= factor
+            self.linear.weight.data *= factor
         # bias
         if zero_bias == True:
             self.linear.bias.data.fill_(0)
-        if zero_bias == False and factor != None:
+        elif zero_bias == False and factor != None:
             self.linear.bias.data *= factor
 
 class RNNPolicy(nn.Module):
@@ -110,6 +113,23 @@ class RNNPolicy(nn.Module):
         out = out[:, -1, :]
         out = self.fc1(out)
         return out
+    
+class FNNPolicy(nn.Module):
+    def __init__(self, env, in_channels, **kwargs):
+        super().__init__(**kwargs)
+        self.in_channels = in_channels
+        self.out_dimension = env.action_space.n
+        
+        self.linear1 = nn.Linear(self.in_channels, 64)
+        self.linear2 = nn.Linear(64, 64)
+        self.linear3 = nn.Linear(64, self.out_dimension)
+
+    def forward(self, input):
+        x = self.linear1(input)
+        x = F.relu(x)
+        x = self.linear2(x)
+        x = F.relu(x)
+        return self.linear3(x)
     
 class RandomPolicy(nn.Module):
     def __init__(self, env, **kwargs):

@@ -5,16 +5,18 @@ import torch.nn.functional as F
 import numpy as np
 
 class SigPolicy(nn.Module):
-    def __init__(self, env, sig_depth): 
+    def __init__(self, env, sig_depth, in_channels=None): 
         assert (
             env.observation_space.shape[1] == 1
         ), "Observation space variables must be scalars"        
         
         super().__init__()
-
-        self.in_channels = env.observation_space.shape[0] # add action
+        if in_channels == None:
+            self.in_channels = env.observation_space.shape[0] # w/o action
+        else:
+            self.in_channels = in_channels
         self.out_dimension = env.action_space.n
-        self.num_actions = env.action_space.n
+        #self.num_actions = env.action_space.n
         self.sig_depth = sig_depth
         self.sig_channels = signatory.signature_channels(channels=self.in_channels,
                                                          depth=sig_depth)
@@ -35,7 +37,7 @@ class SigPolicy(nn.Module):
         #x = F.normalize(signature)
         return self.linear(signature)
 
-    def update_signature(self, path, basepoint=None, signature=None, remove=False):
+    def update_signature(self, path, basepoint=None, signature=None):
         """
         - This function updates a given :signature: with new stream :path: where 
         :basepoint: is the last value of the old path from which :signature: was computed
@@ -48,18 +50,16 @@ class SigPolicy(nn.Module):
             :basepoint: is a three dimentional tensor of shape (batch, 1, in_channels)
             :signature: is a two dimensional tensor of shape (batch, self.sig_channels)
         """
+        assert (basepoint == None and signature == None) or (
+            basepoint != None and signature != None
+        ), "basepoint and signature must both be either None or not None"
+
         if basepoint==None and signature==None:
             if path.shape[1] == 1: # only one observation, return zeros
                 return signatory.signature(path, depth=self.sig_depth,
                                            basepoint = path.squeeze(0)) # alternatively set basepoint=True                         
             else: # return new signature 
                 return signatory.signature(path, depth=self.sig_depth)
-        elif remove: # return signature of path shortened by :path:
-                # TODO: fix functionality, does not work as intendet 
-                path = torch.flip(path, [0, 1]) # reverse path
-                sig_redundant = signature.signature(path, depth=self.sig_depth)
-                return signatory.signature_combine(sig_redundant, signature, 
-                                                   path.shape[2], self.sig_depth) 
         else: # update signature
             return signatory.signature(path, depth=self.sig_depth,
                                        basepoint=basepoint, initial=signature) 
@@ -67,22 +67,22 @@ class SigPolicy(nn.Module):
     def initialize_parameters(self, uniform=None, factor=None, zero_bias=True):
         # weights
         if uniform != None and factor != None:
-            raise RuntimeError("Choose either uniform or multiplicative factor.")
+            raise ValueError("Choose either uniform or multiplicative factor.")
         elif uniform != None:
             self.linear.weight.data.uniform_(-uniform, uniform)
             nn.init.xavier_uniform_(self.linear.weight)
         elif factor != None:
-            self.linear.weigh.data *= factor
+            self.linear.weight.data *= factor
         # bias
         if zero_bias == True:
             self.linear.bias.data.fill_(0)
-        if zero_bias == False and factor != None:
+        elif zero_bias == False and factor != None:
             self.linear.bias.data *= factor
 
 class RNNPolicy(nn.Module):
     def __init__(self, env, layers=1, **kwargs):
         super().__init__(**kwargs)
-        self.in_channels = env.observation_space.n + 1 # one action
+        self.in_channels = env.observation_space.shape[0] # w/o action
         self.out_dimension = env.action_space.n
     
         self.rnn = nn.RNN(self.in_channels, 32, layers, nonlinearity="relu", batch_first=True)
@@ -92,6 +92,23 @@ class RNNPolicy(nn.Module):
     def forward(self, seq):
         # seq here is the observation-action history
         out, _ = self.rnn(seq)
+        out = out[:, -1, :]
+        out = self.fc1(out)
+        return out
+    
+class LSTMPolicy(nn.Module):
+    def __init__(self, env, layers=1, **kwargs):
+        super().__init__(**kwargs)
+        self.in_channels = env.observation_space.shape[0] # w/o action
+        self.out_dimension = env.action_space.n
+    
+        self.lstm = nn.LSTM(self.in_channels, 32, layers, batch_first=True)
+        # specify hidden layers when initialzed
+        self.fc1 = nn.Linear(32, self.out_dimension)
+        
+    def forward(self, seq):
+        # seq here is the observation-action history
+        out, _ = self.lstm(seq)
         out = out[:, -1, :]
         out = self.fc1(out)
         return out

@@ -6,6 +6,8 @@ import numpy as np
 import math
 
 import abides_markets.agents.utils as markets_agent_utils
+from abides_markets.orders import MarketOrder
+from abides_markets.utils import dollarize
 from abides_core import NanosecondTime
 from abides_core.utils import str_to_ns
 from abides_core.generators import ConstantTimeGenerator
@@ -31,8 +33,7 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
         - state_history_length: length of the raw state buffer
         - market_data_buffer_length: length of the market data buffer
         - first_interval: how long the simulation is run before the first wake up of the gym experimental agent
-        - last_interval: how long before market close the gym experimental agent stops trading
-        TODO: implement functionality to stop at mkt_clos - last_intervall
+        - observe_first_interval: if the gym agent observes market during first interval
         - max_inventory: absolute value of maximum inventory the experimental gym agent is allowed to accumulate
         - leftover_inventory_reward: a constant penalty per unit of inventory at market close
         - inventory_reward_dampener: parameter that defines dampening of rewards from speculation
@@ -68,15 +69,15 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
             background_config: Any = "rmsc04",
             mkt_close: str = "16:00:00",
             timestep_duration: str = "10s",
-            starting_cash: int = 100_000,
+            starting_cash: int = 0, #10_000_000,
             order_fixed_size: int = 100,
             mkt_order_alpha: float = 0.1,
             state_history_length: int = 3,  
             market_data_buffer_length: int = 5,
             first_interval: str = "00:15:00",
-            last_interval: str = "00:00:00",
+            observe_first_interval: bool = True,
             max_inventory: int = 1000,
-            remaining_inventory_reward: int = -100, 
+            terminal_inventory_reward: int = 10, 
             inventory_reward_dampener: float = 0.,
             damp_mode: str = "asymmetric",
             reward_mode: str = "dense",
@@ -95,9 +96,9 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
         self.state_history_length: int = state_history_length
         self.market_data_buffer_length: int = market_data_buffer_length
         self.first_interval: NanosecondTime = str_to_ns(first_interval)
-        self.last_interval: NanosecondTime = str_to_ns(last_interval)
+        self.observe_first_interval: bool = observe_first_interval
         self.max_inventory: int = max_inventory
-        self.remaining_inventory_reward: int = remaining_inventory_reward
+        self.terminal_inventory_reward: int = terminal_inventory_reward
         self.inventory_reward_dampener: float = inventory_reward_dampener
         self.damp_mode: str = damp_mode
         self.done_ratio: float = done_ratio
@@ -117,21 +118,6 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
         self.current_mid_price: int = 100_000
         self.previous_mid_price: int = 100_000
 
-        # dict for current prices up to level 5 for action translation
-        # will be filled in raw_state_to_state function
-        # TODO: find better solution to make prices available in action translation
-        self.orderbook_dict = {
-            "asks": {"price": {}, "volume": {}},
-            "bids": {"price": {}, "volume": {}},
-        }
-
-        # dict with limit order spreads for actions
-        # {action_ids : {bid level, ask level}}
-        self.lmt_spreads_dict: Dict [int, Dict[str, int]] = {
-            0: {"BID": 1, "ASK": 1},
-            1: {"BID": 2, "ASK": 2},
-        }
-
         # CHECK PROPERTIES
         assert background_config in [
             "rmsc03",
@@ -144,7 +130,7 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
         ), "Select authorized market hours"
 
         assert (
-            self.timestep_duration <= self.mkt_open_duration - self.last_interval) & (
+            self.timestep_duration <= self.mkt_open_duration) & (
             self.timestep_duration >= str_to_ns("00:00:00")
             ), "Select authorized timestep_duration"
 
@@ -172,21 +158,18 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
             self.first_interval >= str_to_ns("00:00:00")
         ), "Select authorized FIRST_INTERVAL delay"
 
-        assert (self.last_interval >= str_to_ns("00:00:00")) & (
-            self.last_interval <= self.mkt_open_duration
-        ), "Select authorized LAST_INTERVAL stop before market close"
-
-        assert (
-            self.first_interval + self.last_interval <= self.mkt_open_duration
-        ), "Select authorized FIRST_INTERVAL and LAST_INTERVAL combination"    
+        assert self.observe_first_interval in [
+            True,
+            False,
+        ], "observe_first_interval needs to be True or False"  
 
         assert (type(self.max_inventory) == int) & (
             self.max_inventory >= 0
         ), "Select positive integer value for max_inventory"
 
         assert (
-            type(self.remaining_inventory_reward) == int
-        ), "Select integer value for remaining_inventory_reward"
+            type(self.terminal_inventory_reward) == int
+        ), "Select integer value for terminal_inventory_reward"
 
         assert (type(self.inventory_reward_dampener) == float) & (
             0 <= self.inventory_reward_dampener <= 1
@@ -206,8 +189,12 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
             False,
         ], "debug_mode needs to be True or False"                
 
-        self.observe_interval: NanosecondTime = self.first_interval
-        self.first_interval = str_to_ns("00:03:00") 
+        # set observation interval
+        if self.observe_first_interval:
+            self.observation_interval: NanosecondTime = self.first_interval
+            self.first_interval = str_to_ns("00:05:00") 
+        else: 
+            self.observation_interval: NanosecondTime = str_to_ns("00:00:00")
 
         # BACKGROUND CONFIG
         background_config_args = {"end_time": self.mkt_close}
@@ -225,16 +212,32 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
             starting_cash=self.starting_cash,
             state_buffer_length=self.state_history_length,
             market_data_buffer_length=self.market_data_buffer_length,
-            first_interval=self.first_interval, # length zero if observe_first_intervall True
-            # TODO: use data in first intervall for first action selection
+            first_interval=self.first_interval, # length zero if observe_first_interval True
         )
 
         # ACTION SPACE
         # 9 LMT spreads order_fixed_size, 
         # MKT inventory * mkt_order_alpha
         # Do nothing
-        self.num_actions: int = 3
+        self.num_actions: int = 4
         self.action_space: gym.Space = gym.spaces.Discrete(self.num_actions)
+        self.do_nothing_action_id: int = self.num_actions - 1        
+
+        # dict with limit order spreads for actions
+        # {action_ids : {bid level, ask level}}
+        self.lmt_spreads_dict: Dict [int, Dict[str, int]] = {
+            0: {"BID": 0, "ASK": 0},
+            1: {"BID": 0, "ASK": 2},
+            2: {"BID": 2, "ASK": 0},
+        }
+
+        # dict for current prices up to level 3 for action translation
+        # will be filled in raw_state_to_state function
+        # TODO: find better solution to make prices available in action translation
+        self.orderbook_dict = {
+            "asks": {"price": {}, "volume": {}},
+            "bids": {"price": {}, "volume": {}},
+        }
 
         # STATE SPACE
         # [remaining_time_pct, inventory_pct, mid_price, 
@@ -279,7 +282,8 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
         The action space ranges [0, 1, 2,] where:
         - `0` LMT order pairs of order_fixed_size at best bid ask level
         - `1` LMT order pairs of order_fixed_size at second best bid ask level
-        - '2' DO NOTHING
+        - `2` MKT order of size -mkt_order_alpha * current_inventory
+        - '3' DO NOTHING
 
         Arguments:
             - action: integer representation of the different actions
@@ -289,7 +293,7 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
         """
 
         # limit orders
-        if action in range(2):
+        if action in range(3):
             bid_lvl = self.lmt_spreads_dict[action]["BID"]
             ask_lvl = self.lmt_spreads_dict[action]["ASK"]
             
@@ -308,7 +312,7 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
                 "limit_price": self.orderbook_dict["asks"]["price"][ask_lvl][0]
                 # orderbook_dict filled in raw_state_to_state
             }
-
+            
             if abs(self.current_inventory) < self.max_inventory:
                 return [cancel, lmt_buy, lmt_sell]
             elif self.current_inventory > 0:
@@ -319,13 +323,13 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
                 raise ValueError(
                     f"Current inventory {self.current_inventory} does not match allowed values"
                 )
-        elif action == 2:
+        elif action == self.do_nothing_action_id:
             return []
         else:
             raise ValueError(
                 f"Action {action} is not part of the actions support by this environment."
-            )
-        """
+            )              
+        """            
         elif action == 3:
             if self.current_inventory == 0: 
                 return []
@@ -340,7 +344,9 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
                         "size": mkt_order_size
                     }
                 ]
-        """                        
+        """
+      
+
 
     @raw_state_to_state_pre_process
     def raw_state_to_state(self, raw_state: Dict[str, Any]) -> np.ndarray:
@@ -366,8 +372,18 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
         last_bids = bids[-1]
         last_asks = asks[-1]
         for book, book_name in [(last_bids, "bids"), (last_asks, "asks")]:
-            for level in [0, 1, 2]:
+            for level in range(len(self.lmt_spreads_dict)):
                 price, volume = markets_agent_utils.get_val(book, level) # indexing starts at 0
+                if price == 0:
+                    if level == 0:
+                        price = last_transactions[-1]
+                    elif level == 1:
+                        price, _ = markets_agent_utils.get_val(book, level-1)
+                    elif level == 1:
+                        price, _ = markets_agent_utils.get_val(book, level-1)
+                    print("retrieved {} price at level {} is 0".format(book_name, level))
+                    print("last transaction:", last_transactions[-1])
+                    print("last_{} : {}".format(book_name, book))
                 self.orderbook_dict[book_name]["price"][level] = np.array([price]).reshape(-1)
                 self.orderbook_dict[book_name]["volume"][level] = np.array([volume]).reshape(-1)
                 #TODO: why as np.array? Does this work with action translation?
@@ -399,11 +415,12 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
             for (b, a, lt) in zip(bids, asks, last_transactions)
         ]
         mid_price = mid_prices[-1]
+        if mid_price < 60000:
+            print("mid price:", mid_price)
         self.current_mid_price = mid_price # save for reward calculation
-        mid_price_norm = mid_price / 100_000 # normalize for state variable
-        lagged_mid_price_norm = self.previous_mid_price / 100_000 # normalize for state variable
-        #mid_price_diff = (self.mid_price - self.lagged_mid_price) * 1000
-
+        mid_price_norm = (mid_price - 100000) / 100 # in dollar terms for state variable
+        lagged_mid_price_norm = (self.previous_mid_price - 100000) / 100 # in dollar terms for state variable
+        mid_price_diff = (self.current_mid_price - self.previous_mid_price) / 100 # in dollar terms for state variable
 
         # log custom metrics to tracker
         # TODO: implement custom metrics tracker
@@ -414,6 +431,7 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
                 time_pct,
                 inventory_pct,
                 mid_price_norm,
+                #mid_price_diff,
             ], dtype=np.float32
         )
 
@@ -436,6 +454,9 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
         # TODO: add spread as reward component instead of state variable
 
         # 1) value of executed orders relative to mid price
+        pnl = 0
+        self.pnl = 0
+        """
         inter_wakeup_executed_orders = raw_state["internal_data"][
             "inter_wakeup_executed_orders"
         ]
@@ -445,33 +466,38 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
         else: 
             pnl = 0
             for order in inter_wakeup_executed_orders:
-                pnl += (
-                    (self.previous_mid_price - order.fill_price) * order.quantity / (self.order_fixed_size * 100)
-                    if order.side.is_bid()
-                    else 
-                    (order.fill_price - self.previous_mid_price) * order.quantity / (self.order_fixed_size * 100)
-                )
+                mkt_order_multiplier = -1 if isinstance(order, MarketOrder) else 1
+                if order.side.is_bid():
+                    pnl += (
+                        (self.previous_mid_price - order.fill_price) * order.quantity / (100) # * self.order_fixed_size)
+                    ) * mkt_order_multiplier
+                elif order.side.is_ask():                 
+                    pnl += (
+                        (order.fill_price - self.previous_mid_price) * order.quantity / (100) # * self.order_fixed_size)
+                    ) * mkt_order_multiplier
+                else:
+                    raise ValueError("Order is neither bid nor ask")
         self.pnl = pnl
-
         """
+
         # 2) change in inventory value
         mid_price_change = (self.current_mid_price - self.previous_mid_price) / 100
-        inventory_reward = self.previous_inventory * mid_price_change / self.max_inventory
+        inventory_reward = self.previous_inventory * mid_price_change #/ self.max_inventory
         # damp reward component
         if self.damp_mode == "symmetric":
             inventory_reward *= (1 - self.inventory_reward_dampener)
         elif self.damp_mode == "asymmetric":
             inventory_reward -= max(
                 0,
-                self.inventory_reward_dampener * self.previous_inventory * mid_price_change / self.max_inventory
+                self.inventory_reward_dampener * self.previous_inventory * mid_price_change #/ self.max_inventory
             )
         self.inventory_reward = inventory_reward
-        """
+        
 
         # TODO: normalize for order size and max inventory?
         #reward = pnl / self.order_fixed_size + inventory_change / self.max_inventory
         
-        reward = pnl # + inventory_reward
+        reward = pnl + inventory_reward
         return reward
 
     @raw_state_pre_process
@@ -487,7 +513,7 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
         last_transaction = raw_state["parsed_mkt_data"]["last_transaction"]
 
         # 3) Calculate update reward
-        update_reward = (1 - inventory_pct) ** 2 * 10
+        update_reward = (1 - inventory_pct) ** 2 * self.terminal_inventory_reward
         
         return update_reward
 
@@ -527,7 +553,8 @@ class SubGymMarketsMarketMakingEnv_v1(AbidesGymMarketsEnv):
                 "pnl": self.pnl,
                 "cash": cash,
                 "inventory": holdings,
-                #"inventory_reward": self.inventory_reward
+                "inventory_reward": self.inventory_reward,
+                "mid_price": self.current_mid_price,
             }
 
         # 1) Last Known Market Transaction Price

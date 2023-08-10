@@ -30,8 +30,6 @@ def train(
     intermediate_policies = []   
     action_history = []
     inventory_history = []
-    decay_step_counter = 0
-
 
     # CHECK PROPERTIES
     if window_length != None:
@@ -80,8 +78,9 @@ def train(
 
         # RUN EPISODE
         step_counter = 0
+        do_nothing_counter = 0
         while not done:
-            if step_counter < do_nothing_steps:
+            if do_nothing_counter < do_nothing_steps:
                 # agent only observes 
                 action = 10 # next action is 'do nothing'
                 new_tuple = np.hstack((observation, action / 10))
@@ -90,14 +89,14 @@ def train(
 
                 observation, _, _, _ = env.step(action)
                 observation = observation[:,0]
-                step_counter += 1
+                do_nothing_counter += 1
                 last_tuple_tensor = torch.tensor(
                     [new_tuple], requires_grad=False, dtype=torch.float
                 )
 
                 continue
 
-            if step_counter == do_nothing_steps:
+            if do_nothing_counter == do_nothing_steps:
                 # calculate first signature for observed history so far
                 history_signature = policy.update_signature(
                     torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0)
@@ -174,8 +173,7 @@ def train(
 
             # take steps
             scheduler.step()
-            decay_step_counter += 1
-            epsilon = initial_epsilon * epsilon_decay(decay_step_counter)
+            epsilon = initial_epsilon * epsilon_decay(step_counter)
 
             if done:
                 cash_history.append(info["cash"])

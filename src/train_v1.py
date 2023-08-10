@@ -2,6 +2,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
+from torch.distributions import Categorical
 from collections import deque
 import sys
 import tqdm
@@ -17,6 +19,7 @@ def train(
         discount: float = 0.99,
         learning_rate: float = 0.1, 
         learning_rate_decay = lambda step: 1,
+        exploration: str = "greedy",
         epsilon: float = 0.2, 
         epsilon_decay = lambda step: 1,
         window_length: Optional[int] = None,
@@ -30,12 +33,18 @@ def train(
     intermediate_policies = []   
     action_history = []
     inventory_history = []
-    decay_step_counter = 0
-
+    observation_histories = []
+    mid_price_history = []
 
     # CHECK PROPERTIES
-    if window_length != None:
-        assert window_length > 0, "History window length must be a positive integer."
+    assert exploration in [
+        "greedy",
+        "softmax"
+    ], "exploration need to be greedy or softmax."
+
+    assert (window_length == None) or (
+        type(window_length) == int and window_length > 0
+    ), "History window length must be a positive integer or None."
     
     # GRADIENT DESCENT DETAILS
     loss_fn = nn.SmoothL1Loss() # nn.MSELoss()
@@ -46,40 +55,42 @@ def train(
     
     # compute first_interval steps to solely observe
     do_nothing_steps = (
-        floor(env.observe_interval / env.timestep_duration)
+        floor(env.observation_interval / env.timestep_duration)
     )
 
     # TRAINING
+    total_step_counter = 0
     pbar = tqdm.trange(episodes, file=sys.stdout)
     for episode in pbar:
         episode_loss = 0
         episode_reward = 0
         episode_actions = []
         episode_inventory = []
+        episode_mid_prices = []
 
         observation = env.reset()[:,0] # as row vector, gym 0.18.0 returns only state at reset
-        action = 2 # do nothing
+        action = env.do_nothing_action_id # do nothing
         episode_actions.append(action)
 
         history = deque(maxlen=window_length)
         history.append(observation)
 
-        observation_tensor = torch.tensor(
+        next_observation_tensor = torch.tensor(
             [observation], requires_grad=False, dtype=torch.float
         )
 
         # initialize signature variable
-        history_signature = policy.update_signature(observation_tensor.unsqueeze(0))
-        last_observation_tensor = observation_tensor
+        history_signature = policy.update_signature(next_observation_tensor.unsqueeze(0))
+        last_observation_tensor = next_observation_tensor
 
         done = False
-        step_counter = 0
+        do_nothing_counter = 0
 
         # RUN EPISODE
         while not done:
-            if step_counter < do_nothing_steps:
+            if do_nothing_counter < do_nothing_steps:
                 # agent only observes 
-                action = 2 # next action is 'do nothing'
+                action = env.do_nothing_action_id # next action is 'do nothing'
                 episode_actions.append(action)
 
                 observation, _, _, _ = env.step(action)
@@ -89,11 +100,11 @@ def train(
                 )
 
                 history.append(observation)
-                step_counter += 1
+                do_nothing_counter += 1
 
                 continue
 
-            if step_counter == do_nothing_steps:
+            if do_nothing_counter == do_nothing_steps:
                 # calculate first signature for observed history so far
                 history_signature = policy.update_signature(
                     torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0)
@@ -101,34 +112,41 @@ def train(
             
             # create Q values and select action
             Q = policy(history_signature)[0]
-            if np.random.rand(1) < epsilon:
-                action = np.random.randint(0, env.action_space.n)
+            if exploration == "greedy":
+                if np.random.rand(1) < epsilon:
+                    action = np.random.randint(0, env.action_space.n)
+                else:
+                    _, action = torch.max(Q, -1)
+                    action = action.item()
             else:
-                _, action = torch.max(Q, -1)
-                action = action.item()
+                probs = F.softmax(Q / epsilon, dim=-1)
+                m = Categorical(probs)
+                action = m.sample().item()                      
+
             episode_actions.append(action)
 
             # take action
             observation, reward, done, info = env.step(action)
             observation = observation[:,0]
             if printing:
-                print("reward: {} | pnl: {} | inventory {}".format(
-                    reward, info["pnl"], info["inventory"]
+                print("reward: {} | pnl: {} | inventory reward: {} | inventory {} | epsilon {}".format(
+                    reward, info["pnl"], info["inventory_reward"], info["inventory"], epsilon
                 )
                 )
                 if done: 
                     print("update reward {}".format(reward - info["pnl"]))
 
-            episode_inventory.append(info["inventory"])                
+            episode_inventory.append(info["inventory"])     
+            episode_mid_prices.append(info["mid_price"])           
 
             # update history and signature
             history.append(observation) # pops left if maxlen != None
-            observation_tensor = torch.tensor(
+            next_observation_tensor = torch.tensor(
                     [observation], requires_grad=False, dtype=torch.float
             )
 
             if window_length == None:
-                new_path = torch.cat((last_observation_tensor, observation_tensor), 0).unsqueeze(0)
+                new_path = torch.cat((last_observation_tensor, next_observation_tensor), 0).unsqueeze(0)
                 history_signature = policy.update_signature(
                     new_path, last_observation_tensor, history_signature
                 )
@@ -136,7 +154,6 @@ def train(
                 history_signature = policy.update_signature(
                     torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0)
                 )
-            #print(history_signature)
             # TODO: find way to compute signature of shortened path via Chen
 
             Q_target = torch.tensor(reward, requires_grad=False, dtype=torch.float)            
@@ -159,26 +176,26 @@ def train(
             
             episode_loss += loss.item()
             episode_reward += reward
-            step_counter += 1
+            total_step_counter += 1
 
             # take steps
             scheduler.step()
-            decay_step_counter += 1
-            epsilon = initial_epsilon * epsilon_decay(decay_step_counter)
+            epsilon = initial_epsilon * epsilon_decay(total_step_counter)
 
             if done:
                 cash_history.append(info["cash"])
                 terminal_inventory.append(info["inventory"])
             else:
-                last_observation_tensor = observation_tensor
+                last_observation_tensor = next_observation_tensor
             
-            if done or step_counter % 200 == 0:
+            if done or total_step_counter % 100 == 0:
                 print(
-                    "Epsiode {} | step {} | reward {} | loss {}".format(
-                        episode, step_counter, episode_reward, episode_loss
+                    "\n Episode {} | step {} | reward {} | loss {}".format(
+                        episode, total_step_counter, episode_reward, episode_loss
                     )
                 )
                 print("Q values:", Q)
+            
 
         env.close()
 
@@ -188,8 +205,11 @@ def train(
         #if (episode+1) % 5 == 0 or episode == 0:
         #    action_history.append(episode_actions)
         #    inventory_history.append(episode_inventory)
+        #    observation_histories.append(history)
         action_history.append(episode_actions)
         inventory_history.append(episode_inventory)
+        observation_histories.append(history)
+        mid_price_history.append(episode_mid_prices)
 
         if (episode+1) % 10 == 0:
             policy_copy = deepcopy(policy.state_dict())
@@ -207,8 +227,9 @@ def train(
         "terminal_inventory": terminal_inventory,
         "actions": action_history,
         "inventories": inventory_history,
-        "history": history,
+        "observations": observation_histories,
         "intermediate": intermediate_policies,
+        "mid_prices": mid_price_history
     }
     return results
 

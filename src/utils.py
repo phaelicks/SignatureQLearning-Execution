@@ -17,9 +17,9 @@ def moving_average(seq, window):
 
 def plot_results(results, subplot=True, index=None, window=100, point=False):
     
-    names = ['Rewards', 'Loss', 'End position', 'Steps']
-    order = [0, 2, 1, 3] 
-    #order = range(4)
+    names = ['Rewards', 'Loss', 'Cash', 'Terminal inventory']
+    #order = [0, 2, 1, 3] 
+    order = range(4)
 
     if subplot:
         fig, axes = plt.subplots(nrows=2, ncols=2, sharex=True)

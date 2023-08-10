@@ -31,8 +31,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         - state_history_length: length of the raw state buffer
         - market_data_buffer_length: length of the market data buffer
         - first_interval: how long the simulation is run before the first wake up of the gym experimental agent
-        - last_interval: how long before market close the gym experimental agent stops trading
-        TODO: implement functionality to stop at mkt_clos - last_intervall
+        - observe_first_interval: if the gym agent observes market during first interval
         - max_inventory: absolute value of maximum inventory the experimental gym agent is allowed to accumulate
         - leftover_inventory_reward: a constant penalty per unit of inventory at market close
         - inventory_reward_dampener: parameter that defines dampening of rewards from speculation
@@ -74,7 +73,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
             state_history_length: int = 3,  
             market_data_buffer_length: int = 5,
             first_interval: str = "00:15:00",
-            last_interval: str = "00:00:00",
+            observe_first_interval: str = "00:00:00",
             max_inventory: int = 1000,
             remaining_inventory_reward: int = -100, 
             inventory_reward_dampener: float = 0.,
@@ -95,7 +94,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         self.state_history_length: int = state_history_length
         self.market_data_buffer_length: int = market_data_buffer_length
         self.first_interval: NanosecondTime = str_to_ns(first_interval)
-        self.last_interval: NanosecondTime = str_to_ns(last_interval)
+        self.observe_first_interval: bool = observe_first_interval
         self.max_inventory: int = max_inventory
         self.remaining_inventory_reward: int = remaining_inventory_reward
         self.inventory_reward_dampener: float = inventory_reward_dampener
@@ -151,7 +150,7 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
         ), "Select authorized market hours"
 
         assert (
-            self.timestep_duration <= self.mkt_open_duration - self.last_interval) & (
+            self.timestep_duration <= self.mkt_open_duration) & (
             self.timestep_duration >= str_to_ns("00:00:00")
             ), "Select authorized timestep_duration"
 
@@ -179,13 +178,10 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
             self.first_interval >= str_to_ns("00:00:00")
         ), "Select authorized FIRST_INTERVAL delay"
 
-        assert (self.last_interval >= str_to_ns("00:00:00")) & (
-            self.last_interval <= self.mkt_open_duration
-        ), "Select authorized LAST_INTERVAL stop before market close"
-
-        assert (
-            self.first_interval + self.last_interval <= self.mkt_open_duration
-        ), "Select authorized FIRST_INTERVAL and LAST_INTERVAL combination"    
+        assert self.observe_first_interval in [
+            True,
+            False,
+        ], "observe_first_interval needs to be True or False"  
 
         assert (type(self.max_inventory) == int) & (
             self.max_inventory >= 0
@@ -213,9 +209,13 @@ class SubGymMarketsMarketMakingEnv_v0(AbidesGymMarketsEnv):
             False,
         ], "debug_mode needs to be True or False"                
 
-        self.observe_interval: NanosecondTime = self.first_interval
-        self.first_interval = str_to_ns("00:03:00") 
-
+        # set observation interval
+        if self.observe_first_interval:
+            self.observation_interval: NanosecondTime = self.first_interval
+            self.first_interval = str_to_ns("00:00:00") 
+        else: 
+            self.observation_interval: NanosecondTime = str_to_ns("00:00:00")
+            
         # BACKGROUND CONFIG
         background_config_args = {"end_time": self.mkt_close}
         background_config_args.update(background_config_extra_kvargs)
