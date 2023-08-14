@@ -48,7 +48,8 @@ def train(
     ), "History window length must be a positive integer or None."
     
     # GRADIENT DESCENT DETAILS
-    loss_fn = nn.SmoothL1Loss() # nn.MSELoss()
+    loss_fn = nn.SmoothL1Loss() 
+    #loss_fn = nn.MSELoss()
 
     optimizer = optim.Adam(policy.parameters(), lr=learning_rate)
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=learning_rate_decay)
@@ -56,10 +57,9 @@ def train(
     
     # compute first_interval steps to solely observe
     try:
-        do_nothing_steps = (floor(env.observe_interval / env.timestep_duration))
+        do_nothing_steps = (floor(env.observation_interval / env.timestep_duration))
     except AttributeError:
         warnings.warn("'env' admits no observation interval.")
-    finally:
         do_nothing_steps = 0
 
     # TRAINING
@@ -93,7 +93,7 @@ def train(
                 observation, _, _, _ = env.step(action)
                 observation = observation[:,0]
                 history.append(observation)
-                
+
                 last_observation_tensor = torch.tensor(
                     [observation], requires_grad=False, dtype=torch.float
                 )
@@ -114,12 +114,12 @@ def train(
                 else:
                     _, action = torch.max(Q, -1)
                     action = action.item()
-            else:
+            elif exploration == "softmax":
                 probs = F.softmax(Q / epsilon, dim=-1)
                 m = Categorical(probs)
                 action = m.sample().item()                      
             
-            if total_step_counter == 0:
+            if len(history) == 1:
                 try: action = env.do_nothing_action_id
                 except: pass
 

@@ -35,7 +35,6 @@ def test(
         do_nothing_steps = (floor(env.observation_interval / env.timestep_duration))
     except AttributeError:
         warnings.warn("'env' admits no observation interval.")
-    finally:
         do_nothing_steps = 0
 
     total_step_counter = 0
@@ -65,11 +64,12 @@ def test(
             if do_nothing_counter < do_nothing_steps:
                 # agent only observes 
                 action = env.do_nothing_action_id # next action is 'do nothing'
+                episode_actions.append(action)
                 observation, _, _, _ = env.step(action)
                 observation = observation[:,0]
                 history.append(observation)
 
-                last_tuple_tensor = torch.tensor(
+                last_observation_tensor = torch.tensor(
                     [observation], requires_grad=False, dtype=torch.float
                 )
                 do_nothing_counter += 1
@@ -88,11 +88,14 @@ def test(
             else:
                 _, action = torch.max(Q, -1)
                 action = action.item()
-            episode_actions.append(action)
 
-            if total_step_counter == 0:
-                try: action = env.do_nothing_action_id
-                except: pass            
+            if len(history) == 1:
+                try: 
+                    action = env.do_nothing_action_id
+                    print("\n", action)
+                except: pass    
+            
+            episode_actions.append(action)
 
             # take action
             observation, reward, done, info = env.step(action)
@@ -117,9 +120,11 @@ def test(
                 )
 
             episode_reward += reward
+            episode_inventories.append(observation[1])
             total_step_counter += 1
-
-            if not done:
+            if done:
+                cash_history.append(info["cash"])                    
+            else:
                 last_observation_tensor = next_observation_tensor
             
             if done or total_step_counter % 100 == 0:
