@@ -90,9 +90,7 @@ def test(
                 action = action.item()
 
             if len(history) == 1:
-                try: 
-                    action = env.do_nothing_action_id
-                    print("\n", action)
+                try: action = env.do_nothing_action_id
                 except: pass    
             
             episode_actions.append(action)
