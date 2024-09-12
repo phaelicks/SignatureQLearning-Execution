@@ -1,5 +1,5 @@
 import importlib
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 import gym
 import numpy as np
@@ -68,8 +68,9 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
             observation_interval: str = "00:01:00",
             order_fixed_size: int = 100,
             max_inventory: int = 1000,
-            starting_inventory: int = 0,            
-            terminal_inventory_reward: int = 0, 
+            starting_inventory: Union[int,str] = 0,            
+            terminal_inventory_reward: float = 0, 
+            terminal_inventory_mode: str = 'quadratic',
             running_inventory_reward_dampener: float = 0.,
             damp_mode: str = "asymmetric",
             debug_mode: bool = False,
@@ -88,7 +89,8 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
         self.order_fixed_size: int = order_fixed_size
         self.max_inventory: int = max_inventory
         self.starting_inventory: int = starting_inventory
-        self.terminal_inventory_reward: int = terminal_inventory_reward
+        self.terminal_inventory_reward: float = terminal_inventory_reward
+        self.terminal_inventory_mode: str = terminal_inventory_mode        
         self.running_inventory_reward_dampener: float = running_inventory_reward_dampener
         self.damp_mode: str = damp_mode
         self.debug_mode: bool = debug_mode
@@ -140,17 +142,22 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
             self.max_inventory >= 0
         ), "Select positive integer value for max_inventory"
 
-        assert (type(self.starting_inventory) == int) & (
-            0 <= abs(self.starting_inventory) <= self.max_inventory
-        ), "Select positive integer value for starting_inventory smaller than max_inventory"
+        correct_int_or_string = (
+            (0 <= abs(self.starting_inventory) <= self.max_inventory)
+            or self.starting_inventory == "random"
+        )
+        assert (type(self.starting_inventory) in (int, str)) & (
+            correct_int_or_string
+        ), "Select positive integer value, smaller than max_inventory, \
+            or random for starting_inventory."
 
         assert (
             self.starting_inventory % self.order_fixed_size == 0
         ), "Select starting_inventory as multiple of order_fixed_size"
 
         assert (
-            type(self.terminal_inventory_reward) == int
-        ), "Select integer value for terminal_inventory_reward"
+            type(self.terminal_inventory_reward) == float
+        ), "Select float value for terminal_inventory_reward"
 
         assert (type(self.running_inventory_reward_dampener) == float) & (
             0 <= self.running_inventory_reward_dampener <= 1
@@ -388,8 +395,8 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
 
         # 1) change in inventory value
         mid_price_change = (self.current_mid_price - self.previous_mid_price) / 100 # dollar terms
-        # inventory_reward = self.current_inventory * mid_price_change / self.max_inventory # self.starting_inventory
-        inventory_reward = self.previous_inventory * mid_price_change / self.max_inventory # self.starting_inventory
+        inventory_reward = self.current_inventory * mid_price_change / self.max_inventory # self.starting_inventory
+        #inventory_reward = self.previous_inventory * mid_price_change / self.max_inventory # self.starting_inventory
         
         # damp inventory reward 
         if self.damp_mode == "symmetric":
@@ -426,32 +433,29 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
         #update_reward = - self.terminal_inventory_reward * (inventory_pct ** 2)
         ####
 
-        # quadratic reward / penalty depending on sign of terminal_inventory_reward
-        """
-        update_reward = (
-            self.terminal_inventory_reward * (inventory_pct ** 2) # penalty
-            if self.terminal_inventory_reward < 0 else
-            self.terminal_inventory_reward * (1 - inventory_pct ** 2) # reward
-        )
-        """
-
-        # linear reward / penalty depending on sign of terminal_inventory_reward
-        """
-        update_reward = (
-            self.terminal_inventory_reward * abs(inventory_pct) # penalty
-            if self.terminal_inventory_reward < 0 else
-            self.terminal_inventory_reward * (1 - abs(inventory_pct)) # reward
-        )
-        """
-
-        # linear flat reward / penalty
-        offset = 50 / self.max_inventory
-        new_inventory_pct = max(abs(inventory_pct) - offset, 0)
-        update_reward = (
-            self.terminal_inventory_reward * new_inventory_pct # penalty
-            if self.terminal_inventory_reward < 0 else
-            self.terminal_inventory_reward * (1 - new_inventory_pct) # reward
-        )
+        if self.terminal_inventory_mode == 'quadratic':
+            # quadratic reward / penalty depending on sign of terminal_inventory_reward
+            update_reward = (
+                self.terminal_inventory_reward * (inventory_pct ** 2) # penalty
+                if self.terminal_inventory_reward < 0 else
+                self.terminal_inventory_reward * (1 - inventory_pct ** 2) # reward
+            )
+        elif self.terminal_inventory_mode == 'linear':
+            # linear reward / penalty depending on sign of terminal_inventory_reward
+            update_reward = (
+                self.terminal_inventory_reward * abs(inventory_pct) # penalty
+                if self.terminal_inventory_reward < 0 else
+                self.terminal_inventory_reward * (1 - abs(inventory_pct)) # reward
+            )
+        elif self.terminal_inventory_mode == 'flat':
+            # linear flat reward / penalty
+            offset = 25 / self.max_inventory
+            new_inventory_pct = max(abs(inventory_pct) - offset, 0)
+            update_reward = (
+                self.terminal_inventory_reward * new_inventory_pct # penalty
+                if self.terminal_inventory_reward < 0 else
+                self.terminal_inventory_reward * (1 - new_inventory_pct) # reward
+            )
         
         return update_reward
 
