@@ -5,14 +5,16 @@
 .vs/
 .idea/
 .DS_Store
+/old
+-------------------------------------------------
 
 # ignore whole 'abides repository which is a subfolder
 # of this repository
 
-
 # -------------------------------------------------
 # .gitignore sample file for python projects below
 # taken from https://github.com/github/gitignore
+-------------------------------------------------
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
