@@ -145,7 +145,6 @@ def save_plots(results, method, plot_id=None, subplot=True, state='partial', win
             plt.savefig(path + plt_name)
             plt.close()
 
-
 def make_reproducable(base_seed=0, numpy_seed=0, torch_seed=0):
     seed(base_seed)
     np.random.seed(numpy_seed)
@@ -153,11 +152,24 @@ def make_reproducable(base_seed=0, numpy_seed=0, torch_seed=0):
     cudnn.deterministic = True
     cudnn.benchmark = False
 
- 
+
+#--------------------------------------------------
+# hyperparameter decay schedules
+#--------------------------------------------------
+
+def create_decay_schedule(mode=None, start_value=None, **kwargs):
+    if mode == None:
+        return lambda step: 1
+    elif mode == 'linear':
+        return linear_decay(start_value=start_value, **kwargs)
+    elif mode == 'exponential':
+        return exponential_decay(**kwargs)
+    else:
+        raise ValueError('Decay mode must be None, linear or exponential.')
+
 def exponential_decay(factor=1, min_value=0., wait=0):
-    assert 0 < factor <= 1, "multiplicative decay :factor: in :mode: 'exponential' \
-                            must be in intervall [0, 1]."
-    assert 0 <= wait, ":wait: epochs must be greater or equal to zero."
+    assert 0 < factor <= 1, "multiplicative decay factor in [0,1] in mode 'exponential'."
+    assert 0 <= wait, "wait epochs must be non-negative integer."
     
     # return multiplicative decay factor
     return lambda epoch: (
@@ -166,9 +178,9 @@ def exponential_decay(factor=1, min_value=0., wait=0):
         ) else ( 
             max(factor ** epoch, min_value))
     )
-     
+    
 def linear_decay(epochs, start, end=0., wait=0, steps=None):
-    assert epochs > 0, "Choose positive integer value as total decay epochs."
+    assert epochs > 0, "Choose positive integer for total decay epochs."
     assert 0 <= wait <= epochs, "Choose integer value between 0 and decay epochs as wait epochs."
 
     if steps == None:
@@ -188,15 +200,5 @@ def linear_decay(epochs, start, end=0., wait=0, steps=None):
         ) else ( 
             1 - (1 - frac) * min( ((epoch - wait) // step_length) / steps, 1))
         )    
-
-def mixed_linear_decay(epochs, switch, schedule_1=None, schedule_2=None):
-    assert switch <= epochs, "Must switch schedule before end of epochs"
-    return lambda epoch: (
-        schedule_1(epoch) if epoch < switch else (
-            schedule_2(epoch-switch)*schedule_1(switch)
-        )
-    )
-    
-
 
     
