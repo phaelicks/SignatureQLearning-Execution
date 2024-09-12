@@ -1,10 +1,11 @@
+import numpy as np
 import signatory
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 
-class SigPolicy(nn.Module):
+
+class SigQFunction(nn.Module):
     def __init__(self, env, sig_depth, in_channels=None): 
         assert (
             env.observation_space.shape[1] == 1
@@ -37,33 +38,37 @@ class SigPolicy(nn.Module):
         #x = F.normalize(signature)
         return self.linear(signature)
 
-    def update_signature(self, path, basepoint=None, signature=None):
-        """
-        - This function updates a given :signature: with new stream :path: where 
-        :basepoint: is the last value of the old path from which :signature: was computed
-        - If remove == True it instead returns the signatures of the old path, 
-        shortend by :path: at the left end. In this case :path: must be a subpath of old path
-        - If only :path: is given, it returns its signature, which in case length of
-        path is 1 is a tensor of zeros with shape (1, self.sig_channels)
-            
-            :path: is a three dimensional tensor of shape (batch, length, in_channels)
-            :basepoint: is a three dimentional tensor of shape (batch, 1, in_channels)
-            :signature: is a two dimensional tensor of shape (batch, self.sig_channels)
-        """
-        assert (basepoint == None and signature == None) or (
-            basepoint != None and signature != None
-        ), "basepoint and signature must both be either None or not None"
+    def compute_signature(self, path, basepoint=False):
+        if path.shape[1] == 1 and not basepoint:
+            return signatory.signature(path=path, depth=self.sig_depth,
+                                       basepoint=path.squeeze(0))  
+        else:
+            return signatory.signature(path=path, depth=self.sig_depth,
+                                       basepoint=basepoint)      
 
-        if basepoint==None and signature==None:
-            if path.shape[1] == 1: # only one observation, return zeros
-                return signatory.signature(path, depth=self.sig_depth,
-                                           basepoint = path.squeeze(0)) # alternatively set basepoint=True                         
-            else: # return new signature 
-                return signatory.signature(path, depth=self.sig_depth)
-        else: # update signature
-            return signatory.signature(path, depth=self.sig_depth,
-                                       basepoint=basepoint, initial=signature) 
-            
+
+    def update_signature(self, new_path, basepoint, signature):
+        """
+        This function updates a given signature with new data from a path.
+        Let S be the signature of a path X and Y and new path with Y[0] = X[-1],
+        then it returns the signature of the concatenation of X and Y.
+
+        Arguments:
+            - new_path:     data from a new path Y given as a 3-d tensor of shape 
+                            (batch, length, in_channels)
+            - basepoint:    the last value of the path X from which signature was computed,
+                            a 3-d tensor of shape (batch, 1, in_channels)
+            - signature:    the signature from a previous path X, given as a 2-d 
+                            tensor of shape (batch, self.sig_channels)
+
+        Returns:
+            - signature of X and Y concatenated, a 2-d tensor of shape (batch, self.sig_channels)
+        """
+
+        return signatory.signature(path=new_path, depth=self.sig_depth,
+                                   basepoint=basepoint, initial=signature) 
+
+
     def initialize_parameters(self, uniform=None, factor=None, zero_bias=True):
         # weights
         if uniform != None and factor != None:
@@ -78,6 +83,7 @@ class SigPolicy(nn.Module):
             self.linear.bias.data.fill_(0)
         elif zero_bias == False and factor != None:
             self.linear.bias.data *= factor
+
 
 class RNNPolicy(nn.Module):
     def __init__(self, env, layers=1, **kwargs):

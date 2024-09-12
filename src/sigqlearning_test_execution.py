@@ -1,11 +1,8 @@
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.optim as optim
 from collections import deque
 import sys
-import tqdm
-from copy import deepcopy
+import tqdm.notebook as tqdm
 from typing import Optional, Dict, List
 from math import floor
 import warnings
@@ -18,12 +15,18 @@ def test(
         discount: float = 1.0,
         epsilon: float = 0.02, 
         window_length: Optional[int] = None,
-        printing: bool = False
+        debug_mode: Optional[str] = None,
 ) -> Dict[str, List]: 
+    # history over episodes
     reward_history = []
-    inventory_history = []
-    action_history = []
     cash_history = []
+    terminal_inventory_history = []
+    terminal_wealth_history = []
+
+    # per episode histories
+    inventory_histories = []
+    action_histories = []
+    observation_histories = []
 
     # CHECK PROPERTIES
     assert (window_length == None) or (
@@ -32,9 +35,9 @@ def test(
     
     # compute observations steps if the environment admits an observation interval
     try: 
-        do_nothing_steps = (floor(env.observation_interval / env.timestep_duration))
+        do_nothing_steps = max(1, floor(env.observation_interval / env.timestep_duration))
     except AttributeError:
-        warnings.warn("'env' admits no observation interval.")
+        warnings.warn("environment admits no observation interval.")
         do_nothing_steps = 0
 
     total_step_counter = 0
@@ -42,9 +45,11 @@ def test(
     # TESTING
     pbar = tqdm.trange(episodes, file=sys.stdout)
     for episode in pbar:
+        pbar.set_description(f"Episode {episode}")
         episode_reward = 0
-        episode_inventories = []
         episode_actions = []
+        episode_mid_prices = []
+        episode_inventories = []
 
         history = deque(maxlen=window_length)
 
@@ -58,6 +63,7 @@ def test(
 
         done = False
         do_nothing_counter = 0
+        episode_step_counter = 0
 
         # RUN EPISODE
         while not done:
@@ -65,9 +71,12 @@ def test(
                 # agent only observes 
                 action = env.do_nothing_action_id # next action is 'do nothing'
                 episode_actions.append(action)
-                observation, _, _, _ = env.step(action)
+
+                observation, _, _, info = env.step(action)
                 observation = observation[:,0]
                 history.append(observation)
+                episode_inventories.append(info["inventory"])
+                episode_mid_prices.append(info["mid_price"])
 
                 last_observation_tensor = torch.tensor(
                     [observation], requires_grad=False, dtype=torch.float
@@ -77,21 +86,19 @@ def test(
 
             if do_nothing_counter == do_nothing_steps:
                 # calculate first signature for observed history so far
-                history_signature = policy.update_signature(
-                    torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0)
-                )                
+                history_signature = policy.compute_signature(
+                    torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0),
+                    basepoint=True
+                )       
+                do_nothing_counter += 1         
             
             # create Q values and select action
-            Q = policy(history_signature)
+            Q = policy(history_signature)[0]
             if np.random.rand(1) < epsilon:
                 action = np.random.randint(0, env.action_space.n)
             else:
                 _, action = torch.max(Q, -1)
                 action = action.item()
-
-            if len(history) == 1:
-                try: action = env.do_nothing_action_id
-                except: pass    
             
             episode_actions.append(action)
 
@@ -99,52 +106,72 @@ def test(
             observation, reward, done, info = env.step(action)
             observation = observation[:,0]
             history.append(observation)
-            if printing:
-                print("reward:", reward)
             
+            episode_reward += reward
+            episode_mid_prices.append(info["mid_price"])
+            episode_inventories.append(info["inventory"])
+
+            if debug_mode == "debug":
+                if episode_step_counter % 100 == 0 or done:
+                    print(
+                        "\
+                        Episode {} | Step {} \n Q values: {} \n \
+                        Selected action: {} \n Reward: {} \n Environment info: {} \n \
+                        ".format(
+                            episode, episode_step_counter, Q, 
+                            action, reward, info
+                        )
+                    )
+            
+            # update signature
             next_observation_tensor = torch.tensor(
                 [observation], requires_grad=False, dtype=torch.float
             )
-
-            # update signature
             if window_length == None:
                 new_path = torch.cat((last_observation_tensor, next_observation_tensor), 0).unsqueeze(0)
                 history_signature = policy.update_signature(
                     new_path, last_observation_tensor, history_signature
                 )
             else: 
-                history_signature = policy.update_signature(
-                    torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0)
+                history_signature = policy.compute_signature(
+                    torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0),
+                    basepoint=True
                 )
 
-            episode_reward += reward
-            episode_inventories.append(observation[1])
             total_step_counter += 1
+            episode_step_counter += 1
+
             if done:
-                cash_history.append(info["cash"])                    
+                cash_history.append(info["cash"])  
+                terminal_inventory_history.append(info["inventory"])                                  
+                try:
+                    terminal_wealth_history.append(info["marked_to_market"])
+                except:
+                    pass
             else:
                 last_observation_tensor = next_observation_tensor
-            
-            if done or total_step_counter % 100 == 0:
-                print(
-                    "\n Episode {} | step {} | reward {} | inventory {}".format(
-                        episode, total_step_counter, episode_reward, observation[1]
-                    )
-                )
-                print("Q values:", Q)
 
+        if debug_mode == "info":
+            print("Episode {0} | Reward {1:0.5f} | Inventory {2} | Steps in run {3}".format(
+                episode, episode_reward, terminal_inventory_history[-1], total_step_counter
+            )
+        )            
 
         # Record history
         reward_history.append(episode_reward)
-        inventory_history.append(episode_inventories)
-        action_history.append(episode_actions)
+        inventory_histories.append(episode_inventories)
+        action_histories.append(episode_actions)
+        observation_histories.append(history)
 
         env.close()
 
     results = {
         "rewards": reward_history,
         "cash": cash_history,
-        "actions": action_history,
-        "inventories": inventory_history,
+        "terminal_inventories": terminal_inventory_history,
+        "terminal_wealth": terminal_wealth_history,
+        "actions": action_histories,
+        "inventories": inventory_histories,
+        "observations": observation_histories,
     }
     return results
