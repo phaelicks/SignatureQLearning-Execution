@@ -6,22 +6,24 @@ import torch.nn.functional as F
 
 
 class SigQFunction(nn.Module):
-    def __init__(self, env, sig_depth, in_channels=None): 
+    def __init__(self, env, sig_depth, in_channels=None, out_dimension=None,
+                 initial_bias=0.1): 
         assert (
             env.observation_space.shape[1] == 1
         ), "Observation space variables must be scalars"        
         
         super().__init__()
-        if in_channels == None:
-            self.in_channels = env.observation_space.shape[0] # w/o action
-        else:
-            self.in_channels = in_channels
-        self.out_dimension = env.action_space.n
-        #self.num_actions = env.action_space.n
+
         self.sig_depth = sig_depth
+        self.in_channels = env.observation_space.shape[0] if in_channels == None else in_channels
+        self.out_dimension = env.action_space.n if out_dimension == None else out_dimension
+        self.initial_bias = initial_bias
         self.sig_channels = signatory.signature_channels(channels=self.in_channels,
                                                          depth=sig_depth)
         self.linear = torch.nn.Linear(self.sig_channels, self.out_dimension, bias=True)
+        self.linear.bias.data.fill_(self.initial_bias)
+        nn.init.xavier_uniform_(self.linear.weight)
+
         #self.linear1 = torch.nn.Linear(self.sig_channels, 32, bias=True)
         #self.linear2 = torch.nn.Linear(32, out_dimension, bias = True)
 
@@ -67,22 +69,6 @@ class SigQFunction(nn.Module):
 
         return signatory.signature(path=new_path, depth=self.sig_depth,
                                    basepoint=basepoint, initial=signature) 
-
-
-    def initialize_parameters(self, uniform=None, factor=None, zero_bias=True):
-        # weights
-        if uniform != None and factor != None:
-            raise ValueError("Choose either uniform or multiplicative factor.")
-        elif uniform != None:
-            self.linear.weight.data.uniform_(-uniform, uniform)
-            nn.init.xavier_uniform_(self.linear.weight)
-        elif factor != None:
-            self.linear.weight.data *= factor
-        # bias
-        if zero_bias == True:
-            self.linear.bias.data.fill_(0)
-        elif zero_bias == False and factor != None:
-            self.linear.bias.data *= factor
 
 
 class RNNPolicy(nn.Module):

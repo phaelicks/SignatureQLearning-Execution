@@ -11,7 +11,7 @@ from abides_core.generators import ConstantTimeGenerator
 
 from abides_gym.envs.markets_environment import AbidesGymMarketsEnv
 
-class SubGymMarketsCustomExecutionEnv_v0(AbidesGymMarketsEnv):
+class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
     """
     Execution v1 environment, it defines a new ABIDES-Gym-markets environment.
     It provides an evironment for a simple algorithmic order execution problem 
@@ -62,8 +62,8 @@ class SubGymMarketsCustomExecutionEnv_v0(AbidesGymMarketsEnv):
             mkt_close: str = "16:00:00",
             timestep_duration: str = "10s",
             starting_cash: int = 100_000,
-            state_history_length: int = 3,  
-            market_data_buffer_length: int = 5,
+            state_history_length: int = 1,  
+            market_data_buffer_length: int = 1,
             first_interval: str = "00:05:00",
             observation_interval: str = "00:01:00",
             order_fixed_size: int = 100,
@@ -329,6 +329,8 @@ class SubGymMarketsCustomExecutionEnv_v0(AbidesGymMarketsEnv):
         self.spread = spreads[-1]
         self.previous_mid_price = self.current_mid_price
         self.current_mid_price = mid_prices[-1]
+        if len(mid_prices) > 1:
+            print(mid_prices[-2] - self.previous_mid_price)
 
         """
         # TODO: explore the use of moving average of spread instead of just current spread
