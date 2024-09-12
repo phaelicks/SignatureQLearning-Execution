@@ -25,10 +25,10 @@ def train(
         episodes: int, 
         discount: float = 0.99,
         learning_rate: float = 0.1, 
-        learning_rate_decay: Dict[str, Any] = dict(mode = None), #lambda epoch: 1,
+        learning_rate_decay: Dict[str, Any] = dict(mode = None),
         exploration: str = "greedy",
         epsilon: float = 0.8, 
-        epsilon_decay: Dict[str, Any] = dict(mode = None), #lambda epoch: 1,
+        epsilon_decay: Dict[str, Any] = dict(mode = None), 
         decay_mode: str = "steps",
         window_length: Optional[int] = None,
         debug_mode: Optional[str] = None,
@@ -53,12 +53,13 @@ def train(
     # PROGESS TRACKING
     if progress_display == 'livelossplot':
         episode_pbar = range(episodes)
-        episode_times = [] # workaround to display remaining time in run
-        groups = {'Reward': ['reward'], 'Loss': ['loss'], 'Terminal Inventory': ['inventory'], 'Remaining Time (min)': ['time']}
+        episode_times = [] # workaround to display estimated remaining time in run
+        groups = {'Reward': ['reward'], 'Loss': ['loss'], 
+                  'Terminal Inventory': ['inventory'], 'Remaining Time (min)': ['time']}
         outputs = [MatplotlibPlot(after_subplot=utils.custom_after_subplot)]
         plotlosses = PlotLosses(groups=groups, outputs=outputs)
     else:
-        episode_pbar =  tqdm.trange(episodes)
+        episode_pbar = tqdm.trange(episodes)
         episode_pbar.set_description(f"Episode")
 
     # LISTS FOR LOGGING HISTORIES
@@ -81,7 +82,7 @@ def train(
 
     # EXPLORATION DETAILS
     initial_epsilon: float = epsilon 
-    epsilon_decay = utils.create_decay_schedule(start_value=epsilon, **epsilon_decay)
+    epsilon_decay = utils.create_decay_schedule(start_value=initial_epsilon, **epsilon_decay)
     
     # GRADIENT DESCENT DETAILS
     loss_fn = nn.SmoothL1Loss()  # nn.MSELoss()
@@ -120,9 +121,8 @@ def train(
         episode_step_counter = 0 # excluding do_nothing_steps
 
         # RUN EPISODE
-        while not done:
-            # agent only observes 
-            if do_nothing_counter < do_nothing_steps:
+        while not done: 
+            if do_nothing_counter < do_nothing_steps: # agent only observes
                 action = env.do_nothing_action_id # next action is 'do nothing'
                 episode_actions.append(action)
                 
@@ -133,7 +133,6 @@ def train(
                 last_observation_tensor = torch.tensor(
                     [observation], requires_grad=False, dtype=torch.float
                 )
-
                 do_nothing_counter += 1
                 continue
             
@@ -141,9 +140,7 @@ def train(
             if do_nothing_counter == do_nothing_steps:
                 history_signature = qfunction.compute_signature(
                     torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0),
-                    basepoint=True
                 )
-                #do_nothing_counter += 1                
             
             # create Q values and select action
             Q = qfunction(history_signature)[0]
@@ -165,7 +162,7 @@ def train(
             if do_nothing_counter == do_nothing_steps:
                 detached_Q = Q.detach()
                 first_Q_values_history.append(detached_Q)
-                do_nothing_counter += 1  
+                do_nothing_counter += 1 # increment to avoid re-assignment
 
             # take action
             observation, reward, done, info = env.step(action)
@@ -186,7 +183,6 @@ def train(
             else: 
                 history_signature = qfunction.compute_signature(
                     torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0),
-                    basepoint=True
                 )
             # TODO: find way to compute signature of shortened path via Chen
 
@@ -244,13 +240,13 @@ def train(
             intermediate_qfunctions.append(deepcopy(qfunction.state_dict()))
 
         # plot intermediate results to see progress
-        if (episode+1) % 50 == 0 or (episode+1) == episodes:
+        if (episode+1) % 100 == 0 or (episode+1) == episodes:
             # TODO: find way to clear plots but keep progress bar in notebook
             utils.plot_results([reward_history, loss_history, 
                                 cash_history, terminal_inventory_history,], 
                                 size=(7,5))
 
-        # print episode statistics if needed
+        # print episode statistics
         if debug_mode == "info":
             print("Episode {} | Reward {} | Loss {} | Steps in run {}".format(
                     episode, episode_reward, episode_loss, total_step_counter

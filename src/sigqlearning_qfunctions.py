@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 class SigQFunction(nn.Module):
     def __init__(self, env, sig_depth, in_channels=None, out_dimension=None,
-                 initial_bias=0.1): 
+                 basepoint=True, initial_bias=0.1): 
         assert (
             env.observation_space.shape[1] == 1
         ), "Observation space variables must be scalars"        
@@ -17,7 +17,9 @@ class SigQFunction(nn.Module):
         self.sig_depth = sig_depth
         self.in_channels = env.observation_space.shape[0] if in_channels == None else in_channels
         self.out_dimension = env.action_space.n if out_dimension == None else out_dimension
+        self.basepoint = basepoint
         self.initial_bias = initial_bias
+
         self.sig_channels = signatory.signature_channels(channels=self.in_channels,
                                                          depth=sig_depth)
         self.linear = torch.nn.Linear(self.sig_channels, self.out_dimension, bias=True)
@@ -40,16 +42,16 @@ class SigQFunction(nn.Module):
         #x = F.normalize(signature)
         return self.linear(signature)
 
-    def compute_signature(self, path, basepoint=False):
-        if path.shape[1] == 1 and not basepoint:
+    def compute_signature(self, path):
+        if path.shape[1] == 1 and not self.basepoint:
             return signatory.signature(path=path, depth=self.sig_depth,
                                        basepoint=path.squeeze(0))  
         else:
             return signatory.signature(path=path, depth=self.sig_depth,
-                                       basepoint=basepoint)      
+                                       basepoint=self.basepoint)      
 
 
-    def update_signature(self, new_path, basepoint, signature):
+    def update_signature(self, new_path, last_basepoint, signature):
         """
         This function updates a given signature with new data from a path.
         Let S be the signature of a path X and Y and new path with Y[0] = X[-1],
@@ -68,7 +70,7 @@ class SigQFunction(nn.Module):
         """
 
         return signatory.signature(path=new_path, depth=self.sig_depth,
-                                   basepoint=basepoint, initial=signature) 
+                                   basepoint=last_basepoint, initial=signature) 
 
 
 class RNNPolicy(nn.Module):

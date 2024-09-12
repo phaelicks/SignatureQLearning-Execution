@@ -12,8 +12,7 @@ def test(
         env, 
         policy, 
         episodes, 
-        discount: float = 1.0,
-        epsilon: float = 0.02, 
+        epsilon: float = 0.0, 
         window_length: Optional[int] = None,
         debug_mode: Optional[str] = None,
 ) -> Dict[str, List]: 
@@ -88,7 +87,6 @@ def test(
                 # calculate first signature for observed history so far
                 history_signature = policy.compute_signature(
                     torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0),
-                    basepoint=True
                 )       
                 do_nothing_counter += 1         
             
@@ -135,7 +133,6 @@ def test(
             else: 
                 history_signature = policy.compute_signature(
                     torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0),
-                    basepoint=True
                 )
 
             total_step_counter += 1
