@@ -8,6 +8,7 @@ import warnings
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import scipy.stats as stats
 from torch import manual_seed
 from torch.backends import cudnn
 
@@ -19,9 +20,9 @@ TODO: create methods
 """
 
 
-#--------------------------------------------------
+#--------------------------------------------------------------------------
 # plotting functionalities
-#--------------------------------------------------
+#--------------------------------------------------------------------------
 
 
 def custom_after_subplot(ax: plt.Axes, group_name: str, x_label: str):
@@ -151,10 +152,40 @@ def save_mean_results_plots(training_results, date_time_id, file_name, file_path
             plt.close()
 
 
+#--------------------------------------------------------------------------
+# confidence intervals for test results
+#--------------------------------------------------------------------------
 
-#--------------------------------------------------
+def compute_confidence_intervals(test_results, key='rewards', level=0.95):
+    conf_intervals = {}
+    mean_std_error = 0
+    for run, results in test_results.items():
+        mean = np.mean(results[key])
+        standard_error = stats.sem(results[key])
+        mean_std_error += standard_error/len(test_results)            
+        confidence_interval = stats.norm.interval(level, loc=mean, scale=standard_error)
+        conf_intervals[run] = confidence_interval
+    return conf_intervals, mean_std_error
+
+
+def plot_confidence_intervals(conf_intervals, key='rewards', save=False, date_time_id=None):
+    if save:
+        assert date_time_id != None, "Provide date_time_id to save the plot."
+    for run, (lower, upper) in conf_intervals.items():
+        plt.plot((lower, upper), (run, run), 'b|-')
+        plt.plot((lower+upper)/2, run, 'bo')
+    plt.yticks(conf_intervals.keys(), fontsize=11,
+               labels=[f'Run {run+1}' for run in conf_intervals.keys()])
+    plt.xticks(fontsize=11) 
+    plt.figsize=(5.5, 4.125)
+    plt.tight_layout()
+    plt.savefig(f'../figures/confidence_intervals_{key}_{date_time_id}.png')
+    plt.show()
+
+
+#--------------------------------------------------------------------------
 # hyperparameter decay schedules
-#--------------------------------------------------
+#--------------------------------------------------------------------------
 
 def create_decay_schedule(mode=None, start_value=None, **kwargs):
     if mode == None:
@@ -236,7 +267,7 @@ def save_results(results: Any, file_name: str):
             id += 1
     return date_time_id
 
-def generate_prime_seeds(m):
+def generate_prime_seeds(m, shuffle=False):
     """
     Returns an array of m primes, where 1 <= m <= 100.
     The main part of this function's body is the function `primesfrom2to` from
@@ -253,7 +284,7 @@ def generate_prime_seeds(m):
             sieve[       k*k//3     ::2*k] = False
             sieve[k*(k-2*(i&1)+4)//3::2*k] = False
     primes = np.r_[2,3,((3*np.nonzero(sieve)[0][1:]+1)|1)]
-    return primes.tolist()        
+    return primes.tolist() if not shuffle else np.random.permutation(primes).tolist()        
 
 def make_reproducable(base_seed=0, numpy_seed=0, torch_seed=0):
     seed(base_seed)
