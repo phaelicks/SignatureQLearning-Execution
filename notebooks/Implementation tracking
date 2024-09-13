@@ -1,0 +1,27 @@
+New functionalities to check:
+
+** save training results first before doing anything else! **
+
+Function in utils.py:
+    - plot_run_resuts 
+    - plot_average_results 
+    - save_average_results 
+    - plot_observation_action_history
+
+Cells in execution_env_notebook:
+    - environment generation with env_params dict
+    - save training results dict including env_params, sigq_params, training_params, results_dict
+    - plot single training results
+    - plot and save average training results
+    - plot single episode trajectory
+    - load training results including env_params, sigq_params, training_params, results_dict
+    - comuptation and display of test statistics 
+
+Still to write new:
+    - plot average inventory trajectory in specific test run
+    - action and inventory trajectory in test run for specific episode
+    - confidence intervals for rewards / terminal inventory in test runs
+    - V_0^* in statistics 
+    - plot average Q-value convergence in training
+    - (optional: reward and inventory per episode in test run)
+
