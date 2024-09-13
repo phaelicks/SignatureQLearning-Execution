@@ -183,7 +183,8 @@ def plot_confidence_intervals(conf_intervals, key='rewards', save=False, date_ti
     plt.xticks(fontsize=11) 
     plt.figsize=figsize
     plt.tight_layout()
-    plt.savefig(f'../figures/confidence_intervals_{key}_{date_time_id}.png')
+    if save:
+        plt.savefig(f'../figures/confidence_intervals_{key}_{date_time_id}.png')
     plt.show()
 
 
