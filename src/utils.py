@@ -48,17 +48,18 @@ def moving_average(seq, window):
     return moving_avg
 
 
-def plot_run_results(training_results, run_id=-1, subplot=True, index=None, ma_window=50, point=False, figsize=None):
+def plot_run_results(training_results, run_id, ma_window=50, figsize=None):
     results_run = training_results[run_id]
-    names = results_run.keys()[0:4] # rewards, losses, cash, terminal_inventory
-    fig, axes = plt.subplots(nrows=2, ncols=2, sharex=True)
-    for ax, y_label, count in zip(axes.flat, names, range(4)):
+    keys = list(results_run.keys())[0:4] # rewards, losses, cash, terminal_inventory
+    fig, axes = plt.subplots(nrows=2, ncols=2, sharex=True, figsize=figsize)
+    for ax, y_label, count in zip(axes.flat, keys, range(4)):
         ax.plot(results_run[y_label])
-        ma = ax.plot(pd.Series(results_run[id]).rolling(ma_window).mean(), label="SMA {}".format(ma_window))
+        ma = ax.plot(pd.Series(results_run[y_label]).rolling(ma_window).mean(), label="SMA {}".format(ma_window))
+        ax.set_ylabel(y_label)
         if count ==1:
-            fig.legend(ma, loc='outside upper right')
+            fig.legend(handles=ma, loc='outside upper right')
         if count > 1:
-            ax.set_xlabel('Episodes', size=11)
+            ax.set_xlabel('Episodes')
 
     fig.suptitle('Training results for run {}'.format(run_id), size=15)
     fig.tight_layout()
