@@ -7,6 +7,7 @@ import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from torch import manual_seed
 from torch.backends import cudnn
 
@@ -46,33 +47,110 @@ def moving_average(seq, window):
     return moving_avg
 
 
-def plot_results(results, subplot=True, index=None, window=50, point=False, size=None):
-    names = ['Reward', 'Loss', 'Cash', 'Terminal inventory']
-    #order = [0, 2, 1, 3] 
-    order = range(4)
+def plot_run_results(training_results, run_id=-1, subplot=True, index=None, ma_window=50, point=False, figsize=None):
+    results_run = training_results[run_id]
+    names = results_run.keys()[0:4] # rewards, losses, cash, terminal_inventory
+    fig, axes = plt.subplots(nrows=2, ncols=2, sharex=True)
+    for ax, y_label, count in zip(axes.flat, names, range(4)):
+        ax.plot(results_run[y_label])
+        ma = ax.plot(pd.Series(results_run[id]).rolling(ma_window).mean(), label="SMA {}".format(ma_window))
+        if count ==1:
+            fig.legend(ma, loc='outside upper right')
+        if count > 1:
+            ax.set_xlabel('Episodes', size=11)
 
-    if subplot:
-        fig, axes = plt.subplots(nrows=2, ncols=2, sharex=True)
-        if size is not None:
-            fig.set_size_inches(size)
-        for ax, id, count in zip(axes.flat, order, range(4)):
-            ax.set_title("{} per episode".format(names[id]), size=10)
-            ax.plot(results[id])
-            ax.plot(moving_average(results[id], window))
-            if count > 1:
-                ax.set_xlabel('Episodes', size=10)
-        fig.tight_layout()
-        plt.show()
- 
-    else: 
-        if point:
-            plt.plot(results[index], 'bo')
+    fig.suptitle('Training results for run {}'.format(run_id), size=15)
+    fig.tight_layout()
+    plt.show()
+
+
+def plot_observation_action_history(observation_history, action_history, episode_id, 
+                                    n_actions=3, figsize=(6,3)):
+    fig, ax = plt.subplots(1, 2, figsize=figsize)
+    ax[0].plot(observation_history)
+    ax[0].set_xlabel(f"Observation history in episode {episode_id}")
+    ax[0].legend(["Time pct", "Inventory pct"], loc="best")
+
+    ax[1].plot(action_history)
+    ax[1].set_xlabel(f"Action history in episode {episode_id}")
+    actions = [*range(n_actions)]
+    ax[1].set_yticks(actions, labels=[f"A{i}" for i in actions])
+    fig.tight_layout()
+    plt.show()    
+
+
+def plot_mean_results(training_results, title=None, ma_window=50, figsize=None):
+    # calculate mean and std over runs
+    results_keys = training_results[-1].keys()[0:4] # rewards, losses, cash, terminal_inventory
+    results_array = np.array([
+        training_results[run][key] 
+        for run in training_results.keys() 
+        for key in results_keys
+    ])
+    means = np.mean(results_array, axis=0)
+    stds = np.std(results_array, axis=0)
+    
+    # plot mean and std
+    y_labels = ['reward', 'loss', 'cash', 'terminal inventory'] # keys differ from names
+    fig, axes = plt.subplots(nrows=2, ncols=2, sharex=True, layout='constrained', figsize=figsize)
+    for ax, id in zip(axes.flat, range(4)):
+        ax.plot(means[id], color="b", label="mean over runs") 
+        ax.plot(pd.Series(means[id]).rolling(ma_window).mean())
+        ax.fill_between(range(len(means[id])),
+                        means[id] - 1 * stds[id],
+                        means[id] + 1 * stds[id],
+                        color='b', alpha=0.2, label='+/- one standard deviation')
+        ax.set_ylabel('mean ' + y_labels[id])
+        if id > 1:
+            ax.set_xlabel('episodes')
+        #ax.legend(loc="best") # legend in each subplot
+        if id==0:
+            fig.legend(bbox_to_anchor=(0.18, 1.02, 1., .102), loc='lower left',
+                      ncols=2, borderaxespad=-0.2)
+    fig.suptitle(title, y=1.127)
+    plt.show()
+
+def save_mean_results_plots(training_results, date_time_id, file_name, file_path='../figures', 
+                            title=False, ma_window=50, figsize=(5.5,4.125), show=False):
+    # calculate mean and std over runs
+    results_keys = training_results[-1].keys()[0:4] # rewards, losses, cash, terminal_inventory
+    results_array = np.array([
+        training_results[run][key] 
+        for run in training_results.keys() 
+        for key in results_keys
+    ])
+    means = np.mean(results_array, axis=0)
+    stds = np.std(results_array, axis=0)
+
+    y_labels = ['reward', 'loss', 'cash', 'terminal inventory'] # keys differ from names
+    for y_label, id in zip(y_labels, range(4)):
+        plt.figure(figsize=figsize)        
+        plt.plot(means[id], color="b", label='mean {}'.format(y_label))
+        plt.plot(pd.Series(means[id]).rolling(ma_window).mean())
+        # create std intervals to fill
+        fill_lower = means[id] - stds[id] if y_label != 'loss' else [
+            mean - std if mean - std >= 0. else mean for mean, std in zip(means[id], stds[id])
+        ]
+        fill_upper = means[id] + stds[id]
+        plt.fill_between(range(len(means[id])), fill_lower, fill_upper,
+                         color='b', alpha=0.2, label='+/- one standard deviation')
+        plt.ylabel(y_label, fontsize=11)
+        plt.xlabel('episode', fontsize=11)
+        plt.xticks(fontsize=11)
+        plt.yticks(fontsize=11)        
+        plt.legend(loc='best')
+        if title:
+            plt.title('Average {} over training runs'.format(y_label), fontsize=10)
         else: 
-            plt.plot(results[index])
-        plt.plot(moving_average(results[index], window))
-        plt.xlabel('Episode')
-        plt.ylabel(names[index])
-        plt.show()
+            plt.title(' ', fontsize=12)
+        plt.tight_layout()
+        plt.savefig(file_path + file_name + 'mean_' + y_label + '_' + date_time_id + '.png')
+        if show:
+            plt.show()
+        else:
+            plt.close()
+
+
 
 #--------------------------------------------------
 # hyperparameter decay schedules
@@ -127,13 +205,25 @@ def linear_decay(epochs, start_value, end_value=0., wait=0, steps=None):
 #--------------------------------------------------
 
 def save_results(results: Any, file_name: str):
+    """
+    Save results to a pickle file in the results directory. Returns
+    a unique date_time_id string to use for saving corresponding plots.
+    
+    Args:
+        results: results to save, can be any type serializable by pickle
+        file_name: name of the file to save the results to
+
+    Returns:
+        date_time_id: string with date and time of saving and a unique id
+    """
     assert(type(file_name) == str), "file_name must be a string."
 
     date_time = datetime.now().strftime("_%Y%m%d")
     id = ord('A')
     exists = True
     while exists:
-        file_path = '../results/' + file_name + date_time + '_' + chr(id) + '.pkl'
+        date_time_id = date_time + '_' + chr(id)
+        file_path = '../results/' + file_name + date_time_id + '.pkl'
         try:
             with open(file_path, "xb") as fout:
                 pickle.dump(results, fout)
@@ -141,9 +231,10 @@ def save_results(results: Any, file_name: str):
             exists = False
         except FileExistsError: 
             warnings.warn(
-                f"File '{file_path}' already exists. Setting new identifier."
+                f"File '{file_path}' already exists. Setting new date_time_id."
             )
             id += 1
+    return date_time_id
 
 def generate_prime_seeds(m):
     """
