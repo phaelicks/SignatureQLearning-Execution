@@ -76,33 +76,35 @@ def plot_observation_action_history(observation_history, action_history, episode
     ax[1].plot(action_history)
     ax[1].set_xlabel(f"Action history in episode {episode_id}")
     actions = [*range(n_actions)]
-    ax[1].set_yticks(actions, labels=[f"A{i}" for i in actions])
+    ax[1].set_yticks(actions, labels=[f"a_{i}" for i in actions])
     fig.tight_layout()
     plt.show()    
 
 
 def plot_mean_results(training_results, title=None, ma_window=50, figsize=None):
     # calculate mean and std over runs
-    results_keys = training_results[-1].keys()[0:4] # rewards, losses, cash, terminal_inventory
+    plot_keys = list(next(iter(training_results.values())).keys())[0:4] # rewards, losses, cash, terminal_inventory
     results_array = np.array([
-        training_results[run][key] 
-        for run in training_results.keys() 
-        for key in results_keys
+        [run_results[key] for key in plot_keys] 
+        for run_results in training_results.values()
     ])
     means = np.mean(results_array, axis=0)
     stds = np.std(results_array, axis=0)
     
     # plot mean and std
-    y_labels = ['reward', 'loss', 'cash', 'terminal inventory'] # keys differ from names
+    y_labels = ['reward', 'loss', 'cash', 'terminal inventory'] # y_labels differ from plot_keys
     fig, axes = plt.subplots(nrows=2, ncols=2, sharex=True, layout='constrained', figsize=figsize)
-    for ax, id in zip(axes.flat, range(4)):
+    for ax, y_label, id in zip(axes.flat, y_labels, range(4)):
         ax.plot(means[id], color="b", label="mean over runs") 
         ax.plot(pd.Series(means[id]).rolling(ma_window).mean())
-        ax.fill_between(range(len(means[id])),
-                        means[id] - 1 * stds[id],
-                        means[id] + 1 * stds[id],
-                        color='b', alpha=0.2, label='+/- one standard deviation')
-        ax.set_ylabel('mean ' + y_labels[id])
+
+        fill_lower = means[id] - stds[id] if y_label != 'loss' else [
+            mean - std if mean - std >= 0. else 0 for mean, std in zip(means[id], stds[id])
+        ]
+        fill_upper = means[id] + stds[id]
+        ax.fill_between(range(len(means[id])), fill_lower, fill_upper,
+                         color='b', alpha=0.2, label='+/- one standard deviation')        
+        ax.set_ylabel('mean ' + y_label)
         if id > 1:
             ax.set_xlabel('episodes')
         #ax.legend(loc="best") # legend in each subplot
@@ -112,14 +114,14 @@ def plot_mean_results(training_results, title=None, ma_window=50, figsize=None):
     fig.suptitle(title, y=1.127)
     plt.show()
 
-def save_mean_results_plots(training_results, date_time_id, file_name, file_path='../figures', 
+
+def save_mean_results_plots(training_results, date_time_id, file_name, file_path='../figures/', 
                             title=False, ma_window=50, figsize=(5.5,4.125), show=False):
     # calculate mean and std over runs
-    results_keys = training_results[-1].keys()[0:4] # rewards, losses, cash, terminal_inventory
+    plot_keys = list(next(iter(training_results.values())).keys())[0:4] # rewards, losses, cash, terminal_inventory
     results_array = np.array([
-        training_results[run][key] 
-        for run in training_results.keys() 
-        for key in results_keys
+        [run_results[key] for key in plot_keys] 
+        for run_results in training_results.values()
     ])
     means = np.mean(results_array, axis=0)
     stds = np.std(results_array, axis=0)
@@ -146,7 +148,7 @@ def save_mean_results_plots(training_results, date_time_id, file_name, file_path
         else: 
             plt.title(' ', fontsize=12)
         plt.tight_layout()
-        plt.savefig(file_path + file_name + 'mean_' + y_label + '_' + date_time_id + '.png')
+        plt.savefig(file_path + file_name + '_mean_' + y_label + '_' + date_time_id + '.png')
         if show:
             plt.show()
         else:
@@ -169,16 +171,17 @@ def compute_confidence_intervals(test_results, key='rewards', level=0.95):
     return conf_intervals, mean_std_error
 
 
-def plot_confidence_intervals(conf_intervals, key='rewards', save=False, date_time_id=None):
+def plot_confidence_intervals(conf_intervals, key='rewards', save=False, date_time_id=None,
+                              figsize=(5.5, 4.125)):
     if save:
         assert date_time_id != None, "Provide date_time_id to save the plot."
     for run, (lower, upper) in conf_intervals.items():
         plt.plot((lower, upper), (run, run), 'b|-')
         plt.plot((lower+upper)/2, run, 'bo')
-    plt.yticks(conf_intervals.keys(), fontsize=11,
+    plt.yticks(list(conf_intervals.keys()), fontsize=11,
                labels=[f'Run {run+1}' for run in conf_intervals.keys()])
     plt.xticks(fontsize=11) 
-    plt.figsize=(5.5, 4.125)
+    plt.figsize=figsize
     plt.tight_layout()
     plt.savefig(f'../figures/confidence_intervals_{key}_{date_time_id}.png')
     plt.show()
@@ -250,16 +253,18 @@ def save_results(results: Any, file_name: str):
     """
     assert(type(file_name) == str), "file_name must be a string."
 
-    date_time = datetime.now().strftime("_%Y%m%d")
+    date_time = datetime.now().strftime("%Y%m%d")
     id = ord('A')
     exists = True
     while exists:
         date_time_id = date_time + '_' + chr(id)
-        file_path = '../results/' + file_name + date_time_id + '.pkl'
+        file_path = '../results/' + file_name + '_' + date_time_id + '.pkl'
         try:
             with open(file_path, "xb") as fout:
                 pickle.dump(results, fout)
-            print(f"Passed results saved under: '{file_path}'")
+            print("\nPassed results saved under: '{}'.\nCurrent date_time_id: '{}'.".format(
+                file_path, date_time_id
+            ))
             exists = False
         except FileExistsError: 
             warnings.warn(

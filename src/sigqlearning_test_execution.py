@@ -21,6 +21,7 @@ def test(
     cash_history = []
     terminal_inventory_history = []
     terminal_wealth_history = []
+    initial_value_history = []
 
     # per episode histories
     inventory_histories = []
@@ -44,9 +45,11 @@ def test(
     # TESTING
     qfunction.eval()
     with torch.no_grad():
+
         pbar = tqdm.trange(episodes, file=sys.stdout)
         for episode in pbar:
             pbar.set_description(f"Episode {episode}")
+
             episode_reward = 0
             episode_actions = []
             episode_mid_prices = []
@@ -86,10 +89,12 @@ def test(
                     continue
 
                 if do_nothing_counter == do_nothing_steps:
-                    # calculate first signature for observed history so far
+                    # calculate signature and value function of observed history so far
+                    # for observation = (time, inventory), this history is always the same
                     history_signature = qfunction.compute_signature(
                         torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0),
-                    )       
+                    )
+                    initial_value = qfunction(history_signature)[0].detach().mean().item()
                     do_nothing_counter += 1         
                 
                 # create Q values and select action
@@ -159,6 +164,7 @@ def test(
             # Record history
             reward_history.append(episode_reward)
             inventory_histories.append(episode_inventories)
+            initial_value_history.append(initial_value)
             action_histories.append(episode_actions)
             observation_histories.append(history)
 
@@ -168,6 +174,7 @@ def test(
         "rewards": reward_history,
         "cash": cash_history,
         "terminal_inventories": terminal_inventory_history,
+        "initial_values": initial_value_history,
         "terminal_wealth": terminal_wealth_history,
         "actions": action_histories,
         "inventories": inventory_histories,
