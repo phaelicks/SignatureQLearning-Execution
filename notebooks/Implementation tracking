@@ -30,6 +30,7 @@ Cells in execution_env_notebook:
 Still to write new:
     - plot average inventory trajectory in specific test run
     - action and inventory trajectory in test run for specific episode
+    - confidence intervals for rewards / terminal inventory in test runs
     - plot average Q-value convergence in training
     - (optional: reward and inventory per episode in test run)
 

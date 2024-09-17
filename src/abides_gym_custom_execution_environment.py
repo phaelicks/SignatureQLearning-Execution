@@ -395,8 +395,8 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
 
         # 1) change in inventory value
         mid_price_change = (self.current_mid_price - self.previous_mid_price) / 100 # dollar terms
-        inventory_reward = self.current_inventory * mid_price_change / self.max_inventory # self.starting_inventory
-        #inventory_reward = self.previous_inventory * mid_price_change / self.max_inventory # self.starting_inventory
+        #inventory_reward = self.current_inventory * mid_price_change / self.max_inventory # self.starting_inventory
+        inventory_reward = self.previous_inventory * mid_price_change / self.max_inventory # self.starting_inventory
         
         # damp inventory reward 
         if self.damp_mode == "symmetric":
@@ -406,7 +406,7 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
                 0,
                 self.running_inventory_reward_dampener * inventory_reward
             )
-        self.inventory_reward = inventory_reward
+        self.inventory_reward = inventory_reward #/ self.order_fixed_size
         
         # TODO: normalize for order size and max inventory?
         #reward = pnl / self.order_fixed_size + inventory_change / self.max_inventory
@@ -456,8 +456,10 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
                 if self.terminal_inventory_reward < 0 else
                 self.terminal_inventory_reward * (1 - new_inventory_pct) # reward
             )
+        else:
+            raise ValueError("Select quadratic, linear or flat for terminal_inventory_mode")
         
-        return update_reward
+        return update_reward #/ self.order_fixed_size
 
     @raw_state_pre_process
     def raw_state_to_done(self, raw_state: Dict[str, Any]) -> bool:

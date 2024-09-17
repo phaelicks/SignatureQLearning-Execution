@@ -239,12 +239,14 @@ def train(
         if (episode+1) % 10 == 0 or (episode+1) == episodes:
             intermediate_qfunctions.append(deepcopy(qfunction.state_dict()))
 
+        """
         # plot intermediate results to see progress
         if (episode+1) % 100 == 0 or (episode+1) == episodes:
             # TODO: find way to clear plots but keep progress bar in notebook
-            utils.plot_results([reward_history, loss_history, 
-                                cash_history, terminal_inventory_history,], 
-                                size=(7,5))
+            utils.plot_run_results([reward_history, loss_history, 
+                                    cash_history, terminal_inventory_history,], 
+                                    size=(7,5))
+        """                                    
 
         # print episode statistics
         if debug_mode == "info":

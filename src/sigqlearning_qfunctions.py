@@ -24,7 +24,7 @@ class SigQFunction(nn.Module):
                                                          depth=sig_depth)
         self.linear = torch.nn.Linear(self.sig_channels, self.out_dimension, bias=True)
         self.linear.bias.data.fill_(self.initial_bias)
-        nn.init.xavier_uniform_(self.linear.weight)
+        #nn.init.xavier_uniform_(self.linear.weight)
 
         #self.linear1 = torch.nn.Linear(self.sig_channels, 32, bias=True)
         #self.linear2 = torch.nn.Linear(32, out_dimension, bias = True)
