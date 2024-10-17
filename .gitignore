@@ -7,6 +7,8 @@
 .DS_Store
 /old
 /results
+
+Results tracker
 #-------------------------------------------------
 
 # ignore whole 'abides repository which is a subfolder
