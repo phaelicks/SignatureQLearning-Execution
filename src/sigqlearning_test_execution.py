@@ -27,6 +27,7 @@ def test(
     inventory_histories = []
     action_histories = []
     observation_histories = []
+    mid_price_histories = []
 
     # CHECK PROPERTIES
     assert (window_length == None) or (
@@ -167,6 +168,7 @@ def test(
             initial_value_history.append(initial_value)
             action_histories.append(episode_actions)
             observation_histories.append(history)
+            mid_price_histories.append(episode_mid_prices)
 
             env.close()
 
@@ -179,5 +181,6 @@ def test(
         "actions": action_histories,
         "inventories": inventory_histories,
         "observations": observation_histories,
+        "mid_prices": mid_price_histories,
     }
     return results
