@@ -432,6 +432,7 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
         #### WRONG TERMINAL REWARD - leads to interesting behaviour
         #update_reward = - self.terminal_inventory_reward * (inventory_pct ** 2)
         ####
+        update_reward = 0
 
         if self.terminal_inventory_mode == 'quadratic':
             # quadratic reward / penalty depending on sign of terminal_inventory_reward
