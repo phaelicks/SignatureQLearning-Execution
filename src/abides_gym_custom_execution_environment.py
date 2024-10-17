@@ -285,10 +285,10 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
             }
 
             if (action == 0) and (
-                self.current_inventory < self.max_inventory            
+                self.current_inventory <= self.max_inventory - self.order_fixed_size            
             ): return [cancel, lmt_buy]
             elif (action == 1) and (
-                self.current_inventory > -self.max_inventory
+                self.current_inventory >= -self.max_inventory + self.order_fixed_size
             ): return [cancel, lmt_sell]
             else: return []          
   
@@ -395,8 +395,8 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
 
         # 1) change in inventory value
         mid_price_change = (self.current_mid_price - self.previous_mid_price) / 100 # dollar terms
-        #inventory_reward = self.current_inventory * mid_price_change / self.max_inventory # self.starting_inventory
-        inventory_reward = self.previous_inventory * mid_price_change / self.max_inventory # self.starting_inventory
+        inventory_reward = self.current_inventory * mid_price_change / self.max_inventory # self.starting_inventory
+        #inventory_reward = self.previous_inventory * mid_price_change / self.max_inventory # self.starting_inventory
         
         # damp inventory reward 
         if self.damp_mode == "symmetric":
