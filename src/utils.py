@@ -48,7 +48,7 @@ def moving_average(seq, window):
     return moving_avg
 
 
-def plot_run_results(training_results, run_id, ma_window=50, figsize=None):
+def plot_training_run_results(training_results, run_id, ma_window=50, figsize=None):
     results_run = training_results[run_id]
     keys = list(results_run.keys())[0:4] # rewards, losses, cash, terminal_inventory
     fig, axes = plt.subplots(nrows=2, ncols=2, sharex=True, figsize=figsize)
@@ -81,7 +81,7 @@ def plot_observation_action_history(observation_history, action_history, episode
     plt.show()    
 
 
-def plot_mean_results(training_results, title=None, ma_window=50, figsize=None):
+def plot_mean_training_results(training_results, title=None, ma_window=50, figsize=None):
     # calculate mean and std over runs
     plot_keys = list(next(iter(training_results.values())).keys())[0:4] # rewards, losses, cash, terminal_inventory
     results_array = np.array([
@@ -154,6 +154,53 @@ def save_mean_results_plots(training_results, date_time_id, file_name, file_path
         else:
             plt.close()
 
+
+def plot_test_run_results(test_results_dict, run_id, episode_id=-1, ma_window=0, figsize=None):
+    test_run = test_results_dict[run_id]
+    names = ["rewards", "terminal_inventories", "actions", "inventories"]
+    fig, axes = plt.subplots(nrows=2, ncols=2, sharex=False, figsize=figsize)
+    for ax, id in zip(axes.flat, range(4)):
+        ax.set_title(names[id] + f' in run {run_id}' if id < 2 else names[id] + (
+                        " in episode " + str(episode_id) if episode_id != -1 else " in last episode")
+        )
+        if episode_id is not None:
+            ax.plot(test_run[names[id]] if id < 2 else test_run[names[id]][episode_id])
+        else:
+            ax.plot(test_run[names[id]]) if id < 2 else [ax.plot(x) for x in test_run[names[id]]]
+
+        if ma_window > 0:
+            ax.plot(
+                pd.Series(test_run[names[id]]).rolling(ma_window).mean()
+                if id < 2 else
+                pd.Series(test_run[names[id]][episode_id]).rolling(ma_window).mean(), 
+                label="SMA {}".format(ma_window)
+            )            
+        ax.set_xlabel("Episodes" if id < 2 else "Steps")
+    fig.tight_layout()
+    plt.show()
+
+def plot_baseline_results(baseline_run, episode_id=-1, ma_window=0, figsize=None):
+    names = ["rewards", "terminal_inventories", "actions", "inventories"]
+    fig, axes = plt.subplots(nrows=2, ncols=2, sharex=False, figsize=figsize)
+    for ax, id in zip(axes.flat, range(4)):
+        ax.set_title(names[id] + f' in baseline run' if id < 2 else names[id] + (
+                        " in episode " + str(episode_id) if episode_id != -1 else " in last episode")
+        )
+        if episode_id is not None:
+            ax.plot(baseline_run[names[id]] if id < 2 else baseline_run[names[id]][episode_id])
+        else:
+            ax.plot(baseline_run[names[id]]) if id < 2 else [ax.plot(x) for x in baseline_run[names[id]]]
+
+        if ma_window > 0:
+            ax.plot(
+                pd.Series(baseline_run[names[id]]).rolling(ma_window).mean()
+                if id < 2 else
+                pd.Series(baseline_run[names[id]][episode_id]).rolling(ma_window).mean(), 
+                label="SMA {}".format(ma_window)
+            )             
+        ax.set_xlabel("Episodes" if id < 2 else "Steps")
+    fig.tight_layout()
+    plt.show()
 
 #--------------------------------------------------------------------------
 # confidence intervals for test results
