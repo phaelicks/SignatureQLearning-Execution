@@ -95,7 +95,7 @@ def test(
                     history_signature = qfunction.compute_signature(
                         torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0),
                     )
-                    initial_value = qfunction(history_signature)[0].detach().mean().item()
+                    initial_value = max(qfunction(history_signature)[0].detach()).item()
                     do_nothing_counter += 1         
                 
                 # create Q values and select action
