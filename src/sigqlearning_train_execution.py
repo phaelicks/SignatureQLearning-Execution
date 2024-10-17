@@ -68,7 +68,7 @@ def train(
     reward_history = []
     cash_history = []
     terminal_inventory_history = [] 
-    first_Q_values_history = []
+    first_obs_value_history = []
     last_Q_values_history = []
     
     # one history per episode
@@ -90,7 +90,7 @@ def train(
     lr_decay_lambda = utils.create_decay_schedule(start_value=learning_rate, **learning_rate_decay)
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_decay_lambda)
     
-    # compute first_interval steps to solely observe
+    # compute observation_interval steps to solely observe
     try:
         do_nothing_steps = max(1, floor(env.observation_interval / env.timestep_duration))
     except AttributeError:
@@ -100,7 +100,7 @@ def train(
     # TRAINING
     total_step_counter = 0 # excluding do_nothing_steps
     for episode in episode_pbar:
-        start_time = time()
+        start_time = time() # workaround to display estimated remaining time in livelossplot
 
         episode_loss = 0
         episode_reward = 0
@@ -160,8 +160,8 @@ def train(
 
             # save first Q value for each episode
             if do_nothing_counter == do_nothing_steps:
-                detached_Q = Q.detach()
-                first_Q_values_history.append(detached_Q)
+                first_obs_value = max(Q.detach()).item()
+                first_obs_value_history.append(first_obs_value)
                 do_nothing_counter += 1 # increment to avoid re-assignment
 
             # take action
@@ -276,7 +276,7 @@ def train(
         "inventories": inventory_histories,
         "observations": observation_histories,
         "mid_prices": mid_price_histories,
-        "first_Q_values": first_Q_values_history,
+        "first_obs_values": first_obs_value_history,
         "intermediate": intermediate_qfunctions,        
     }
     return results
