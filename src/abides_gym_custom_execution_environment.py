@@ -1,5 +1,5 @@
 import importlib
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Union, Optional
 
 import gym
 import numpy as np
@@ -72,7 +72,9 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
             terminal_inventory_reward: float = 0, 
             terminal_inventory_mode: str = 'quadratic',
             running_inventory_reward_dampener: float = 0.,
-            damp_mode: str = "asymmetric",
+            reward_multiplier: Optional[str] = None,
+            reward_multiplier_float: Optional[float] = None,
+            damp_mode: Optional[str] = None,
             debug_mode: bool = False,
             background_config_extra_kvargs: Dict[str, Any] = {}
     ) -> None: 
@@ -92,7 +94,9 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
         self.terminal_inventory_reward: float = terminal_inventory_reward
         self.terminal_inventory_mode: str = terminal_inventory_mode        
         self.running_inventory_reward_dampener: float = running_inventory_reward_dampener
-        self.damp_mode: str = damp_mode
+        self.reward_multiplier: Optional[str] = reward_multiplier
+        self.reward_multiplier_float: Optional[float] = reward_multiplier_float
+        self.damp_mode: Optional[str] = damp_mode
         self.debug_mode: bool = debug_mode
 
         # time the market is open
@@ -165,8 +169,9 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
 
         assert damp_mode in [
             "asymmetric",
-            "symmetric"
-        ], "damp_mode needs to be symmetric or asymmetric"
+            "symmetric",
+            None,
+        ], "damp_mode needs to be symmetric, asymmetric or None"
 
         assert self.debug_mode in [
             True,
@@ -293,7 +298,6 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
             else: return []          
   
         elif action == self.do_nothing_action_id:
-            #return [{"type": "CCL_ALL"}]
             return []
         else:
             raise ValueError(
@@ -395,15 +399,41 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
 
         # 1) change in inventory value
         mid_price_change = (self.current_mid_price - self.previous_mid_price) / 100 # dollar terms
-        inventory_reward = self.current_inventory * mid_price_change / self.max_inventory # self.starting_inventory
-        #inventory_reward = self.previous_inventory * mid_price_change / self.max_inventory # self.starting_inventory
+        inventory_pct = self.current_inventory / self.max_inventory
+
+        if self.reward_multiplier == 'flat':
+            offset = (0.5 * self.order_fixed_size) / self.max_inventory
+            #inventory_pct = np.sign(inventory_pct) * max(abs(inventory_pct) - offset, 0)
+            # linear flat both sides
+            inventory_reward = - max(abs(inventory_pct) - offset, 0.) * abs(mid_price_change)
+
         
+        if self.reward_multiplier == 'quadratic':
+            #inventory_pct = np.sign(inventory_pct) * inventory_pct ** 2
+            
+            # quadratic both sides
+            inventory_reward = - (inventory_pct ** 2) * abs(mid_price_change)
+
+        if self.reward_multiplier == 'quadratic_flat':            
+            # quadratic both sides with flat part
+            offset = (0.5 * self.order_fixed_size) / self.max_inventory
+            inventory_reward = - (max(abs(inventory_pct) - offset, 0.) ** 2) * abs(mid_price_change)
+
+        if self.reward_multiplier == 'quadratic_positive':            
+            # quadratic both sides with positive part
+            offset = (0.5 * self.order_fixed_size) / self.max_inventory
+            inventory_reward = - (inventory_pct ** 2 - offset ** 2) * abs(mid_price_change)
+    
+
+        if self.reward_multiplier_float is not None:
+            inventory_reward *= self.reward_multiplier_float        
+
         # damp inventory reward 
         if self.damp_mode == "symmetric":
             inventory_reward *= (1 - self.running_inventory_reward_dampener)
         elif self.damp_mode == "asymmetric":
             inventory_reward -= max(
-                0,
+                0.,
                 self.running_inventory_reward_dampener * inventory_reward
             )
         self.inventory_reward = inventory_reward #/ self.order_fixed_size
@@ -433,14 +463,28 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
         #update_reward = - self.terminal_inventory_reward * (inventory_pct ** 2)
         ####
         update_reward = 0
-
+        offset = 0.5 * self.order_fixed_size / self.max_inventory
+        
         if self.terminal_inventory_mode == 'quadratic':
             # quadratic reward / penalty depending on sign of terminal_inventory_reward
-            update_reward = (
-                self.terminal_inventory_reward * (inventory_pct ** 2) # penalty
-                if self.terminal_inventory_reward < 0 else
-                self.terminal_inventory_reward * (1 - inventory_pct ** 2) # reward
-            )
+            if self.reward_multiplier == 'quadratic':
+                update_reward = (
+                    self.terminal_inventory_reward * (inventory_pct ** 2) # penalty
+                    if self.terminal_inventory_reward < 0 else
+                    self.terminal_inventory_reward * (1 - inventory_pct ** 2) # reward
+                )
+            elif self.reward_multiplier == 'quadratic_flat':
+                update_reward = (
+                    self.terminal_inventory_reward * (max(abs(inventory_pct) - offset, 0.) ** 2) # penalty
+                    if self.terminal_inventory_reward < 0 else
+                    self.terminal_inventory_reward * (1 - (max(abs(inventory_pct) - offset, 0.) ** 2)) # reward
+                )
+            elif self.reward_multiplier == 'quadratic_positive':
+                update_reward = (
+                    self.terminal_inventory_reward * (inventory_pct ** 2 - offset ** 2) # penalty
+                    if self.terminal_inventory_reward < 0 else
+                    self.terminal_inventory_reward * (1 - (inventory_pct ** 2 - offset ** 2)) # reward
+                )
         elif self.terminal_inventory_mode == 'linear':
             # linear reward / penalty depending on sign of terminal_inventory_reward
             update_reward = (
@@ -450,8 +494,8 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
             )
         elif self.terminal_inventory_mode == 'flat':
             # linear flat reward / penalty
-            offset = 25 / self.max_inventory
-            new_inventory_pct = max(abs(inventory_pct) - offset, 0)
+            offset = 0.5 * self.order_fixed_size / self.max_inventory
+            new_inventory_pct = max(abs(inventory_pct) - offset, 0.)
             update_reward = (
                 self.terminal_inventory_reward * new_inventory_pct # penalty
                 if self.terminal_inventory_reward < 0 else

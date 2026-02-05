@@ -12,14 +12,6 @@ import scipy.stats as stats
 from torch import manual_seed
 from torch.backends import cudnn
 
-
-""" 
-TODO: create methods
-    - plot_average_results
-    - save_average_results_plots
-"""
-
-
 #--------------------------------------------------------------------------
 # plotting functionalities
 #--------------------------------------------------------------------------
@@ -66,21 +58,6 @@ def plot_training_run_results(training_results, run_id, ma_window=50, figsize=No
     plt.show()
 
 
-def plot_observation_action_history(observation_history, action_history, episode_id, 
-                                    n_actions=3, figsize=(6,3)):
-    fig, ax = plt.subplots(1, 2, figsize=figsize)
-    ax[0].plot(observation_history)
-    ax[0].set_xlabel(f"Observation history in episode {episode_id}")
-    ax[0].legend(["Time pct", "Inventory pct"], loc="best")
-
-    ax[1].plot(action_history)
-    ax[1].set_xlabel(f"Action history in episode {episode_id}")
-    actions = [*range(n_actions)]
-    ax[1].set_yticks(actions, labels=[f"a_{i}" for i in actions])
-    fig.tight_layout()
-    plt.show()    
-
-
 def plot_mean_training_results(training_results, title=None, ma_window=50, figsize=None):
     # calculate mean and std over runs
     plot_keys = list(next(iter(training_results.values())).keys())[0:4] # rewards, losses, cash, terminal_inventory
@@ -115,8 +92,8 @@ def plot_mean_training_results(training_results, title=None, ma_window=50, figsi
     plt.show()
 
 
-def save_mean_results_plots(training_results, date_time_id, file_name, file_path='../figures/', 
-                            title=False, ma_window=50, figsize=(5.5,4.125), show=False):
+def save_mean_training_results_plots(training_results, date_time_id, file_name, file_path='../figures/', 
+                                     title=False, ma_window=50, figsize=(5.5,4.125), show=False):
     # calculate mean and std over runs
     plot_keys = list(next(iter(training_results.values())).keys())[0:4] # rewards, losses, cash, terminal_inventory
     results_array = np.array([
@@ -148,11 +125,177 @@ def save_mean_results_plots(training_results, date_time_id, file_name, file_path
         else: 
             plt.title(' ', fontsize=12)
         plt.tight_layout()
-        plt.savefig(file_path + file_name + '_mean_' + y_label + '_' + date_time_id + '.png')
+        plt.savefig(file_path + file_name + '_mean_' + y_label.replace(' ', '_') + '_' + date_time_id + '.png')
         if show:
             plt.show()
         else:
             plt.close()
+
+
+def plot_inventory_action_histories(training_results_dict, run_ids=0, episode_ids=-1, n_actions=3,
+                                    figsize=None, save=False, date_time_id=None):
+    """
+    Plots observation and action histories for given run_ids and episode_ids.
+
+    Args:
+        training_results_dict: dict with training results
+        run_ids: list of run_ids or single int run_id as int
+        episode_ids: list of episode_id or single int episode_id
+        n_actions: total number of actions
+        figsize: figure size
+        save: boolean flag if plot should be saved
+        date_time_id: string to append to file name for saving, 
+                      should be the date_time_id from provided training_results_dict
+
+    Returns:
+        A plot with inventory and action histories for all runs in run_ids for each
+        episode in episode_ids. Each subplot shows inventory and action histories, 
+        respectively, for a single episode_id and all run_ids.
+    """
+    if type(run_ids) == str and run_ids == 'all': 
+        run_ids = list(training_results_dict.keys())
+    elif type(run_ids) == int:
+        run_ids = [run_ids]
+    if type(episode_ids) == int:
+        episode_ids = [episode_ids]
+    
+    plot_rows = len(episode_ids)
+    max_episodes = len(training_results_dict[0]["observations"])
+    if figsize == None:
+        figsize = (9, 2.5 * plot_rows)
+    for i in range(plot_rows):
+        episode_ids[i] = episode_ids[i] if episode_ids[i] >= 0 else max_episodes + episode_ids[i]
+
+    fig, axs = plt.subplots(plot_rows, 2, sharex=True, figsize=figsize, squeeze=False)
+    for episode_id, ax_row in zip(episode_ids, axs):
+        for run_id in run_ids:
+            # extract observations and actions
+            observation_history = list(training_results_dict[run_id]["observations"][episode_id])
+            action_history = training_results_dict[run_id]["actions"][episode_id]
+            # plot
+            ax_row[0].plot([inventory for (_, inventory) in observation_history])
+            ax_row[0].set_title(f'Episode {episode_id+1}', fontsize=10)
+            ax_row[1].plot(action_history, label='Run {}'.format(run_id+1))
+            ax_row[1].set_title(f'Episode {episode_id+1}', fontsize=10)
+
+        if episode_id == episode_ids[0]: # legend only once
+            fig.legend(bbox_to_anchor=(0.22, 0.94, 1., .102), loc='center left',
+                        ncols=5, borderaxespad=-0.2)
+
+    actions = [*range(n_actions)]
+    for ax_row in axs:
+        ax_row[0].set_ylabel(r"Inventory $o_t$")
+        ax_row[1].set_ylabel("Action")
+        ax_row[1].set_yticks(actions, labels=[rf"$a_{i}$" for i in actions])
+    
+    axs[-1][0].set_xlabel(r"Step $t$")
+    axs[-1][0].set_xticks([0, 30, 60, 90, 120, 150, 180]) # one axis seems enough
+    axs[-1][1].set_xlabel(r"Step $t$")        
+
+    fig.suptitle(f'Inventories and actions in episodes {episode_ids}', y=1.05)    
+    fig.tight_layout()
+    if save:
+        fig.savefig('../figures/custom_execution_observation_action_histories_{}.png'.format(
+            date_time_id
+        ), bbox_inches='tight')    
+    plt.show()    
+    
+
+def plot_first_observation_values(training_results_dict, run_ids='all', mean=True, std=False, figsize=None,
+                                  line=None, save=False, date_time_id=None):
+    plt.figure(figsize=figsize)      
+    
+    # plot only mean and std
+    if run_ids == []: 
+        means = np.mean([run['first_obs_values'] for run in training_results_dict.values()], axis=0)
+        stds = np.std([run['first_obs_values'] for run in training_results_dict.values()], axis=0)
+        plt.plot(means, label=r"mean first observation value $\bar v_0^*$", ls='-', lw=1.5, color='b')
+        plt.fill_between(range(len(means)), means + stds, means - stds, alpha=0.2, color='b',
+                        label=r"$\pm$ one standard deviation $\sigma_{v_0^*}$")
+        if line is not None:
+            plt.plot([line for _ in range(len(means))], ls=':', lw=1.2, color='black') 
+        plt.legend(loc='best')
+        plt.title(r'Average first observation value in training')
+    
+    # plot specified runs
+    else: 
+        if type(run_ids) == str and run_ids == 'all': # all runs
+            run_ids = training_results_dict.keys()
+        elif type(run_ids) == int: # single run
+            run_ids = [run_ids]
+    
+        for run_id in run_ids:
+            plt.plot(training_results_dict[run_id]["first_obs_values"], 
+                    label=f"Run {run_id+1}", lw=1)          
+        if line is not None:
+            plt.plot([line for _ in range(len(training_results_dict[0]['first_obs_values']))], 
+                     ls=':', lw=1.2, color='black')
+        if mean:
+            means = np.mean([run['first_obs_values'] for run in training_results_dict.values()], axis=0)
+            plt.plot(means, label=r"mean $v_0^*(n)$", ls='--', lw=1.5, color='black')
+        if mean and std:
+            stds = np.std([run['first_obs_values'] for run in training_results_dict.values()], axis=0)
+            plt.fill_between(range(len(means)), means + stds, means - stds, 
+                            label=r"$\pm\sigma_{v_0^*(n)}$", alpha=0.2, color='black')
+        handles, labels = plt.gca().get_legend_handles_labels()
+        order = [*range(7), 10, 7, 8, 9, 11] if figsize[1] < 4 else [*(range(5)),10,*range(5,10),11]
+        plt.legend([handles[idx] for idx in order],[labels[idx] for idx in order],
+                   loc='upper right', ncols=3 if figsize[1] <4 else 2, fontsize=9)        
+        plt.title('First observation values in training')    
+
+    plt.xlabel(r'episode $n$', fontsize=11)
+    plt.ylabel(r'$v_0^*(n)$', fontsize=12)
+    plt.xticks(fontsize=11)
+    plt.yticks(fontsize=11)   
+    plt.tight_layout()
+    if save:
+        file_path = '../figures/'
+        file_path += 'first_observation_values' if run_ids is not [] else 'mean_first_observation_value'
+        plt.savefig(file_path + '_' + date_time_id + '.png')
+    plt.show()
+
+
+def plot_reward_vs_first_obs_value(training_results_dict, episode_window=(-500,-1), figsize=None,
+                                   line=None, save=False, date_time_id=None):
+    fig, axs =  plt.subplots(1, 2, figsize=figsize)
+    n_episodes = len(list(training_results_dict.values())[0]['rewards'])
+    start = episode_window[0] if episode_window[0] >= 0 else n_episodes + episode_window[0]
+    end = episode_window[1] if episode_window[1] >= 0 else n_episodes + episode_window[1]
+    domain = range(start, end)
+    # rewards
+    means = np.mean([run['rewards'][start:end] for run in training_results_dict.values()], axis=0)
+    stds = np.std([run['rewards'][start:end] for run in training_results_dict.values()], axis=0)
+    axs[0].plot(domain, means, ls='-', lw=1.5, color='b', label=r"mean reward")
+    axs[0].fill_between(domain, means + stds, means - stds, alpha=0.2, color='b',
+                        label=r"$\pm$ $\sigma_{reward}$")
+    if line is not None:
+        axs[0].plot(domain, [line for _ in domain], ls=':', lw=1.2, color='black') 
+    axs[0].set_ylim([-0.22, 0.05])    
+    axs[0].set_ylabel(r'reward', fontsize=11)
+    axs[0].set_xlabel(r'episode $n$', fontsize=11)
+    axs[0].legend(loc='lower right', fontsize=9)
+    axs[0].set_title(r'Average reward in training', fontsize=11)
+
+    # first observation values
+    means = np.mean([run['first_obs_values'][start:end] for run in training_results_dict.values()], axis=0)
+    stds = np.std([run['first_obs_values'][start:end] for run in training_results_dict.values()], axis=0)    
+    axs[1].plot(domain, means, ls='-', lw=1.5, color='b', label=r"mean $v_0^*(n)$")
+    axs[1].fill_between(domain, means + stds, means - stds, alpha=0.2, color='b',
+                        label=r"$\pm$ $\sigma_{v_0^*(n)}$")
+    if line is not None:
+        axs[1].plot(domain, [line for _ in domain], ls=':', lw=1.2, color='black') 
+    axs[1].set_ylim([-0.10, -0.070])    
+    axs[1].legend(loc='lower right', fontsize=9)
+    axs[1].set_title(r'Average $v_0^*(n)$ in training', fontsize=11)
+    axs[1].set_ylabel(r'$v_0^*(n)$', fontsize=11)
+    axs[1].set_xlabel(r'episode $n$', fontsize=11)
+    #axs[1].set_xticklabels([str(i) for i in range(start, end, 100)])
+
+    fig.tight_layout()
+    if save:
+        file_path = '../figures/reward_vs_first_observation_value'
+        plt.savefig(file_path + '_' + date_time_id + '.png')
+    plt.show()
 
 
 def plot_test_run_results(test_results_dict, run_id, episode_id=-1, ma_window=0, figsize=None):
@@ -179,7 +322,7 @@ def plot_test_run_results(test_results_dict, run_id, episode_id=-1, ma_window=0,
     fig.tight_layout()
     plt.show()
 
-def plot_baseline_results(baseline_run, episode_id=-1, ma_window=0, figsize=None):
+def plot_baseline_results(baseline_results, episode_id=-1, ma_window=0, figsize=None):
     names = ["rewards", "terminal_inventories", "actions", "inventories"]
     fig, axes = plt.subplots(nrows=2, ncols=2, sharex=False, figsize=figsize)
     for ax, id in zip(axes.flat, range(4)):
@@ -187,20 +330,62 @@ def plot_baseline_results(baseline_run, episode_id=-1, ma_window=0, figsize=None
                         " in episode " + str(episode_id) if episode_id != -1 else " in last episode")
         )
         if episode_id is not None:
-            ax.plot(baseline_run[names[id]] if id < 2 else baseline_run[names[id]][episode_id])
+            ax.plot(baseline_results[names[id]] 
+            if id < 2 else 
+            baseline_results[names[id]][episode_id])
         else:
-            ax.plot(baseline_run[names[id]]) if id < 2 else [ax.plot(x) for x in baseline_run[names[id]]]
+            ax.plot(baseline_results[names[id]] 
+            if id < 2 else 
+            [ax.plot(x) for x in baseline_results[names[id]]])
 
         if ma_window > 0:
             ax.plot(
-                pd.Series(baseline_run[names[id]]).rolling(ma_window).mean()
+                pd.Series(baseline_results[names[id]]).rolling(ma_window).mean()
                 if id < 2 else
-                pd.Series(baseline_run[names[id]][episode_id]).rolling(ma_window).mean(), 
+                pd.Series(baseline_results[names[id]][episode_id]).rolling(ma_window).mean(), 
                 label="SMA {}".format(ma_window)
             )             
         ax.set_xlabel("Episodes" if id < 2 else "Steps")
     fig.tight_layout()
     plt.show()
+
+def save_baseline_trajectories(baseline_results, episode_ids=[-1], rho=50,
+                               show=False, file_path=None):
+    assert file_path != None, "Provide file_path to save the plots."
+    assert len(episode_ids) <= 4, "Maximum of 4 episodes can be plotted."
+
+    linestyles = ['-', '--', '-.', ':'][0:len(episode_ids)] # for different episodes
+    plt.rcParams['text.usetex'] = False
+    steps = len(baseline_results["inventories"][0])
+
+    # actions
+    plt.figure(figsize=(5.5, 4.125))
+    for episode, style in zip(episode_ids, linestyles):
+        plt.plot(baseline_results["actions"][episode], lw=2, ls=style)
+    plt.xlabel("Step", fontsize=11)
+    plt.xticks([0+ 20*i for i in range(10)], fontsize=11)
+    plt.ylabel("Action", fontsize=11)
+    plt.yticks([0, 1, 2], fontsize=11)
+    plt.legend(["Episode one", "Episode two"], 
+               loc="lower right", fontsize=11)
+    plt.tight_layout()
+    plt.savefig(file_path + 'baseline_actions.png')
+    plt.show() if show else plt.close()
+
+    # terminal inventory
+    plt.figure(figsize=(5.5, 4.125))
+    for episode, style in zip(episode_ids, linestyles):
+        plt.plot(baseline_results["inventories"][episode], lw=2, ls=style)
+    plt.plot([rho//2 for _ in range(steps)], ls='dotted', color='black', lw=1.5)
+    plt.plot([-rho//2 for _ in range(steps)], ls='dotted', color='black', lw=1.5)
+    plt.xlabel("Step", fontsize=11)
+    plt.xticks([0+ 20*i for i in range(steps//20+1)], fontsize=11)
+    plt.ylabel("Inventory", fontsize=11)
+    plt.legend(["Episode one", "Episode two", r"$\pm\,\rho\, /\, 2$"], 
+               loc="best", fontsize=11)
+    plt.tight_layout()
+    plt.savefig(file_path + 'baseline_inventories.png')
+    plt.show() if show else plt.close()
 
 #--------------------------------------------------------------------------
 # confidence intervals for test results
@@ -321,12 +506,12 @@ def save_results(results: Any, file_name: str):
             id += 1
     return date_time_id
 
-def generate_prime_seeds(m, shuffle=False):
+def generate_prime_seeds(m, random=False):
     """
     Returns an array of m primes, where 1 <= m <= 100.
     The main part of this function's body is the function `primesfrom2to` from
     https://stackoverflow.com/questions/2068372/fastest-way-to-list-all-primes-below-n?noredirect=1&lq=1,
-    which for an integer input n>=6, returns an array of primes, 2 <= p < n
+    which for an integer input n>=6, returns an array of primes, 1 <= p < n
     """
     assert(m <= 100), ValueError("Maximum number of seeds is 100.")
 
@@ -337,8 +522,8 @@ def generate_prime_seeds(m, shuffle=False):
             k=3*i+1|1
             sieve[       k*k//3     ::2*k] = False
             sieve[k*(k-2*(i&1)+4)//3::2*k] = False
-    primes = np.r_[2,3,((3*np.nonzero(sieve)[0][1:]+1)|1)]
-    return primes.tolist() if not shuffle else np.random.permutation(primes).tolist()        
+    primes = np.r_[1,2,3,((3*np.nonzero(sieve)[0][1:]+1)|1)]
+    return primes.tolist()[0:m] if not random else np.random.permutation(primes).tolist()[0:m]        
 
 def make_reproducable(base_seed=0, numpy_seed=0, torch_seed=0):
     seed(base_seed)

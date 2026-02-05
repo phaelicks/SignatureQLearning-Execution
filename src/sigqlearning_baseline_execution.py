@@ -66,8 +66,9 @@ def run_baseline(
                 do_nothing_counter += 1
                 continue 
 
-            # sell as long as absolute inventory abpve 5% of max inventory
-            action = sell_action_id if observation[-1] > 0.025 else env.do_nothing_action_id
+            # sell as long as absolute inventory above 50% of fixed order size
+            threshold = 0.5 * env.order_fixed_size/env.max_inventory
+            action = sell_action_id if observation[-1] > threshold else env.do_nothing_action_id
             episode_actions.append(action)
 
             # take action

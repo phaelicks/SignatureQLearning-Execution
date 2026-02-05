@@ -21,7 +21,7 @@ def test(
     cash_history = []
     terminal_inventory_history = []
     terminal_wealth_history = []
-    initial_value_history = []
+    first_obs_value_history = []
 
     # per episode histories
     inventory_histories = []
@@ -95,7 +95,7 @@ def test(
                     history_signature = qfunction.compute_signature(
                         torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0),
                     )
-                    initial_value = max(qfunction(history_signature)[0].detach()).item()
+                    first_obs_value = max(qfunction(history_signature)[0].detach()).item()
                     do_nothing_counter += 1         
                 
                 # create Q values and select action
@@ -165,7 +165,7 @@ def test(
             # Record history
             reward_history.append(episode_reward)
             inventory_histories.append(episode_inventories)
-            initial_value_history.append(initial_value)
+            first_obs_value_history.append(first_obs_value)
             action_histories.append(episode_actions)
             observation_histories.append(history)
             mid_price_histories.append(episode_mid_prices)
@@ -176,7 +176,7 @@ def test(
         "rewards": reward_history,
         "cash": cash_history,
         "terminal_inventories": terminal_inventory_history,
-        "initial_values": initial_value_history,
+        "first_obs_values": first_obs_value_history,
         "terminal_wealth": terminal_wealth_history,
         "actions": action_histories,
         "inventories": inventory_histories,

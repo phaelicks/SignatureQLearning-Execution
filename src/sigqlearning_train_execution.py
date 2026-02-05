@@ -73,7 +73,6 @@ def train(
     
     # one history per episode
     action_histories = []
-    inventory_histories = []
     observation_histories = []
     mid_price_histories = []
     
@@ -141,6 +140,10 @@ def train(
                 history_signature = qfunction.compute_signature(
                     torch.tensor(history, requires_grad=False, dtype=torch.float).unsqueeze(0),
                 )
+                # save first Q value for each episode
+                first_obs_value = max(qfunction(history_signature)[0].detach()).item()
+                first_obs_value_history.append(first_obs_value)
+                do_nothing_counter += 1 # increment to avoid re-assignment
             
             # create Q values and select action
             Q = qfunction(history_signature)[0]
@@ -157,12 +160,6 @@ def train(
 
             # save selected action
             episode_actions.append(action)
-
-            # save first Q value for each episode
-            if do_nothing_counter == do_nothing_steps:
-                first_obs_value = max(Q.detach()).item()
-                first_obs_value_history.append(first_obs_value)
-                do_nothing_counter += 1 # increment to avoid re-assignment
 
             # take action
             observation, reward, done, info = env.step(action)
@@ -273,7 +270,6 @@ def train(
         "cash": cash_history,
         "terminal_inventory": terminal_inventory_history,
         "actions": action_histories,
-        "inventories": inventory_histories,
         "observations": observation_histories,
         "mid_prices": mid_price_histories,
         "first_obs_values": first_obs_value_history,
