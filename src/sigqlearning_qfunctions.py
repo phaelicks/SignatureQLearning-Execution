@@ -1,27 +1,36 @@
 import numpy as np
-import signatory
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import signatory
 
 
 class SigQFunction(nn.Module):
-    def __init__(self, env, sig_depth, in_channels=None): 
+    def __init__(self, env, sig_depth, in_channels=None, out_dimension=None,
+                 basepoint=True, initial_bias=0.01): 
         assert (
             env.observation_space.shape[1] == 1
         ), "Observation space variables must be scalars"        
         
         super().__init__()
-        if in_channels == None:
-            self.in_channels = env.observation_space.shape[0] # w/o action
-        else:
-            self.in_channels = in_channels
-        self.out_dimension = env.action_space.n
-        #self.num_actions = env.action_space.n
+
         self.sig_depth = sig_depth
+        self.in_channels = env.observation_space.shape[0] if in_channels == None else in_channels
+        self.out_dimension = env.action_space.n if out_dimension == None else out_dimension
+        self.basepoint = (
+            torch.tensor(basepoint, requires_grad=False, dtype=torch.float).unsqueeze(0)
+            if basepoint not in (None, False, True) else basepoint
+        )        
+        self.initial_bias = initial_bias
+
         self.sig_channels = signatory.signature_channels(channels=self.in_channels,
                                                          depth=sig_depth)
         self.linear = torch.nn.Linear(self.sig_channels, self.out_dimension, bias=True)
+        nn.init.xavier_uniform_(self.linear.weight)
+        if self.initial_bias is not None:
+                self.linear.bias.data.fill_(self.initial_bias)
+
+
         #self.linear1 = torch.nn.Linear(self.sig_channels, 32, bias=True)
         #self.linear2 = torch.nn.Linear(32, out_dimension, bias = True)
 
@@ -38,16 +47,16 @@ class SigQFunction(nn.Module):
         #x = F.normalize(signature)
         return self.linear(signature)
 
-    def compute_signature(self, path, basepoint=False):
-        if path.shape[1] == 1 and not basepoint:
+    def compute_signature(self, path):
+        if path.shape[1] == 1 and self.basepoint in (None, False):
             return signatory.signature(path=path, depth=self.sig_depth,
                                        basepoint=path.squeeze(0))  
         else:
             return signatory.signature(path=path, depth=self.sig_depth,
-                                       basepoint=basepoint)      
+                                       basepoint=self.basepoint)      
 
 
-    def update_signature(self, new_path, basepoint, signature):
+    def update_signature(self, new_path, last_basepoint, signature):
         """
         This function updates a given signature with new data from a path.
         Let S be the signature of a path X and Y and new path with Y[0] = X[-1],
@@ -66,23 +75,7 @@ class SigQFunction(nn.Module):
         """
 
         return signatory.signature(path=new_path, depth=self.sig_depth,
-                                   basepoint=basepoint, initial=signature) 
-
-
-    def initialize_parameters(self, uniform=None, factor=None, zero_bias=True):
-        # weights
-        if uniform != None and factor != None:
-            raise ValueError("Choose either uniform or multiplicative factor.")
-        elif uniform != None:
-            self.linear.weight.data.uniform_(-uniform, uniform)
-            nn.init.xavier_uniform_(self.linear.weight)
-        elif factor != None:
-            self.linear.weight.data *= factor
-        # bias
-        if zero_bias == True:
-            self.linear.bias.data.fill_(0)
-        elif zero_bias == False and factor != None:
-            self.linear.bias.data *= factor
+                                   basepoint=last_basepoint, initial=signature) 
 
 
 class RNNPolicy(nn.Module):
