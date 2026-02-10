@@ -531,7 +531,7 @@ def save_results(results: Any, date_id: str, results_type: str):
     }
     
     if results_type not in file_name_map:
-        raise ValueError(f"result_type must be one of {list(file_name_map.keys())}, got '{result_type}'")
+        raise ValueError(f"result_type must be one of {list(file_name_map.keys())}, got '{results_type}'")
     
     file_name = file_name_map[results_type]
     file_path = f'../results/{file_name}_{date_id}.pkl'
@@ -585,7 +585,7 @@ def load_results(date_id: str, results_type: str):
     }
     
     if results_type not in file_name_map:
-        raise ValueError(f"result_type must be one of {list(file_name_map.keys())}, got '{result_type}'")
+        raise ValueError(f"result_type must be one of {list(file_name_map.keys())}, got '{results_type}'")
     
     file_name = file_name_map[results_type]
     file_path = f'../results/{file_name}_{date_id}.pkl'
