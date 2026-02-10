@@ -470,7 +470,7 @@ def linear_decay(epochs, start_value, end_value=0., wait=0, steps=None):
         )    
 
 #--------------------------------------------------
-# other utility functionalities
+# results saving and loading functionalities
 #--------------------------------------------------
 
 def get_date_id():
@@ -503,26 +503,37 @@ def get_date_id():
         )
         id += 1    
 
-def save_results(results: Any, file_name: str, date_id: str):
+def save_results(results: Any, date_id: str, result_type: str):
     """
     Save results to a pickle file in the results directory with a given date_id.
-    If a file with the same file_name and date_id combination already exists,
+    If a file with the same type and date_id combination already exists,
     a warning is raised and no file is saved.
-    
+        
     Args:
         results: results to save, can be any type serializable by pickle
-        file_name: name of the file to save the results to (without date_id)
         date_id: unique date_id string (format: YYYYMMDD_X, e.g., '20250206_A')
+        result_type: type of results ('baseline', 'training', or 'testing')
 
     Returns:
         date_id: the provided date_id if save was successful
         
     Raises:
-        FileExistsError: if a file with the same name and date_id already exists
+        ValueError: if result_type is not recognized
     """
-    assert isinstance(file_name, str), "file_name must be a string."
     assert isinstance(date_id, str), "date_id must be a string."
+    assert isinstance(result_type, str), "result_type must be a string."
     
+    # Map result types to file names
+    file_name_map = {
+        'baseline': 'execution_baseline_results',
+        'training': 'execution_training_results',
+        'testing': 'execution_test_results',
+    }
+    
+    if result_type not in file_name_map:
+        raise ValueError(f"result_type must be one of {list(file_name_map.keys())}, got '{result_type}'")
+    
+    file_name = file_name_map[result_type]
     file_path = f'../results/{file_name}_{date_id}.pkl'
     
     # Check if file already exists
@@ -541,6 +552,60 @@ def save_results(results: Any, file_name: str, date_id: str):
     except Exception as e:
         warnings.warn(f"Error saving results: {e}")
         raise
+
+
+def load_results(result_type: str, date_id: str):
+    """
+    Load results from a pickle file in the results directory with a given date_id.
+    
+    Args:
+        result_type: type of results ('baseline', 'training', or 'testing')
+        date_id: unique date_id string (format: YYYYMMDD_X, e.g., '20250206_A')
+
+    Returns:
+        For 'baseline': baseline_results_dict
+        For 'training': dict with keys ['training_results', 'final_Q_functions', 
+                                        'sig_params', 'training_params', 
+                                        'env_params', 'training_seeds']
+        For 'testing': (test_results_dict, test_seeds)
+        
+    Raises:
+        ValueError: if result_type is not recognized
+        FileNotFoundError: if the file does not exist
+    """
+    assert isinstance(result_type, str), "result_type must be a string."
+    assert isinstance(date_id, str), "date_id must be a string."
+    
+    # Map result types to file names
+    file_name_map = {
+        'baseline': 'execution_baseline_results',
+        'training': 'execution_training_results',
+        'testing': 'execution_test_results',
+    }
+    
+    if result_type not in file_name_map:
+        raise ValueError(f"result_type must be one of {list(file_name_map.keys())}, got '{result_type}'")
+    
+    file_name = file_name_map[result_type]
+    file_path = f'../results/{file_name}_{date_id}.pkl'
+    
+    # Check if file exists
+    if not Path(file_path).exists():
+        raise FileNotFoundError(f"File '{file_path}' does not exist.")
+    
+    # Load results
+    try:
+        with open(file_path, 'rb') as fin:
+            results = pickle.load(fin)
+        print(f"***** {result_type} results LOADED from {file_path} *****")
+        return results
+    except Exception as e:
+        raise RuntimeError(f"Error loading results from '{file_path}': {e}") 
+       
+
+#--------------------------------------------------
+# other utility functionalities
+#--------------------------------------------------
 
 def generate_prime_seeds(m, random=False):
     """
