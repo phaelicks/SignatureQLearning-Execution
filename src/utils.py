@@ -1,5 +1,6 @@
 from datetime import datetime
 import pickle
+from pathlib import Path
 from random import seed
 import tqdm.notebook as tqdm
 from typing import Any, Dict, List
@@ -472,39 +473,74 @@ def linear_decay(epochs, start_value, end_value=0., wait=0, steps=None):
 # other utility functionalities
 #--------------------------------------------------
 
-def save_results(results: Any, file_name: str):
+def get_date_id():
     """
-    Save results to a pickle file in the results directory. Returns
-    a unique date_time_id string to use for saving corresponding plots.
+    Returns a unique date_id string to use for saving results and plots.
+    The string contains the current date and a unique id to
+    avoid overwriting existing files with the same date_id.
+
+    Returns:
+        date_id: string with current date and a unique id
+    """
+    warnings.resetwarnings() 
+
+    date = datetime.now().strftime("%Y%m%d")
+    id = ord('A')
+    results_dir = Path('../results')
+    
+    while True:
+        date_id = date + '_' + chr(id)
+        # Check if any file ends with the date_id pattern
+        pattern = f'*{date_id}.pkl'
+        existing_files = list(results_dir.glob(pattern))
+        
+        if not existing_files:  # No files found with this date_id
+            print('Current date_id: {}'.format(date_id))
+            return date_id
+        
+        warnings.warn(
+            f"Files with date_id '{date_id}' already exist. Setting new date_id."
+        )
+        id += 1    
+
+def save_results(results: Any, file_name: str, date_id: str):
+    """
+    Save results to a pickle file in the results directory with a given date_id.
+    If a file with the same file_name and date_id combination already exists,
+    a warning is raised and no file is saved.
     
     Args:
         results: results to save, can be any type serializable by pickle
-        file_name: name of the file to save the results to
+        file_name: name of the file to save the results to (without date_id)
+        date_id: unique date_id string (format: YYYYMMDD_X, e.g., '20250206_A')
 
     Returns:
-        date_time_id: string with date and time of saving and a unique id
+        date_id: the provided date_id if save was successful
+        
+    Raises:
+        FileExistsError: if a file with the same name and date_id already exists
     """
-    assert(type(file_name) == str), "file_name must be a string."
-
-    date_time = datetime.now().strftime("%Y%m%d")
-    id = ord('A')
-    exists = True
-    while exists:
-        date_time_id = date_time + '_' + chr(id)
-        file_path = '../results/' + file_name + '_' + date_time_id + '.pkl'
-        try:
-            with open(file_path, "xb") as fout:
-                pickle.dump(results, fout)
-            print("\nPassed results saved under: '{}'.\nCurrent date_time_id: '{}'.".format(
-                file_path, date_time_id
-            ))
-            exists = False
-        except FileExistsError: 
-            warnings.warn(
-                f"File '{file_path}' already exists. Setting new date_time_id."
-            )
-            id += 1
-    return date_time_id
+    assert isinstance(file_name, str), "file_name must be a string."
+    assert isinstance(date_id, str), "date_id must be a string."
+    
+    file_path = f'../results/{file_name}_{date_id}.pkl'
+    
+    # Check if file already exists
+    if Path(file_path).exists():
+        warnings.warn(
+            f"File '{file_path}' already exists. Results were NOT saved."
+        )
+        return date_id
+    
+    # Save results
+    try:
+        with open(file_path, 'wb') as fout:
+            pickle.dump(results, fout)
+        print(f"Results saved under: '{file_path}'")
+        return date_id
+    except Exception as e:
+        warnings.warn(f"Error saving results: {e}")
+        raise
 
 def generate_prime_seeds(m, random=False):
     """
