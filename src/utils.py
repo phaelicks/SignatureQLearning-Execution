@@ -503,7 +503,7 @@ def get_date_id():
         )
         id += 1    
 
-def save_results(results: Any, date_id: str, result_type: str):
+def save_results(results: Any, date_id: str, results_type: str):
     """
     Save results to a pickle file in the results directory with a given date_id.
     If a file with the same type and date_id combination already exists,
@@ -521,7 +521,7 @@ def save_results(results: Any, date_id: str, result_type: str):
         ValueError: if result_type is not recognized
     """
     assert isinstance(date_id, str), "date_id must be a string."
-    assert isinstance(result_type, str), "result_type must be a string."
+    assert isinstance(results_type, str), "result_type must be a string."
     
     # Map result types to file names
     file_name_map = {
@@ -530,10 +530,10 @@ def save_results(results: Any, date_id: str, result_type: str):
         'testing': 'execution_test_results',
     }
     
-    if result_type not in file_name_map:
+    if results_type not in file_name_map:
         raise ValueError(f"result_type must be one of {list(file_name_map.keys())}, got '{result_type}'")
     
-    file_name = file_name_map[result_type]
+    file_name = file_name_map[results_type]
     file_path = f'../results/{file_name}_{date_id}.pkl'
     
     # Check if file already exists
@@ -547,14 +547,14 @@ def save_results(results: Any, date_id: str, result_type: str):
     try:
         with open(file_path, 'wb') as fout:
             pickle.dump(results, fout)
-        print(f"Results saved under: '{file_path}'")
+        print(f"Results SAVED under: '{file_path}'")
         return date_id
     except Exception as e:
         warnings.warn(f"Error saving results: {e}")
         raise
 
 
-def load_results(result_type: str, date_id: str):
+def load_results(date_id: str, results_type: str):
     """
     Load results from a pickle file in the results directory with a given date_id.
     
@@ -567,14 +567,15 @@ def load_results(result_type: str, date_id: str):
         For 'training': dict with keys ['training_results', 'final_Q_functions', 
                                         'sig_params', 'training_params', 
                                         'env_params', 'training_seeds']
-        For 'testing': (test_results_dict, test_seeds)
+        For 'testing': dict with keys ['test_results_dict', 'test_seeds', 
+                                       'checkpoint']
         
     Raises:
         ValueError: if result_type is not recognized
         FileNotFoundError: if the file does not exist
     """
-    assert isinstance(result_type, str), "result_type must be a string."
     assert isinstance(date_id, str), "date_id must be a string."
+    assert isinstance(results_type, str), "result_type must be a string."
     
     # Map result types to file names
     file_name_map = {
@@ -583,10 +584,10 @@ def load_results(result_type: str, date_id: str):
         'testing': 'execution_test_results',
     }
     
-    if result_type not in file_name_map:
+    if results_type not in file_name_map:
         raise ValueError(f"result_type must be one of {list(file_name_map.keys())}, got '{result_type}'")
     
-    file_name = file_name_map[result_type]
+    file_name = file_name_map[results_type]
     file_path = f'../results/{file_name}_{date_id}.pkl'
     
     # Check if file exists
@@ -597,11 +598,34 @@ def load_results(result_type: str, date_id: str):
     try:
         with open(file_path, 'rb') as fin:
             results = pickle.load(fin)
-        print(f"***** {result_type} results LOADED from {file_path} *****")
+        print(f"Results of type '{results_type}' LOADED from: '{file_path}'") 
         return results
     except Exception as e:
         raise RuntimeError(f"Error loading results from '{file_path}': {e}") 
-       
+    
+
+def unpack_training_results(training_data: dict) -> tuple:
+    """
+    Unpack training data dict into individual variables.
+    
+    Args:
+        training_data: dict from load_results('training', date_id)
+    
+    Returns:
+        tuple: (training_results_dict, final_Q_functions, sigq_params, 
+                training_params, env_params, training_seeds, n_runs)
+    """
+    training_results_dict = training_data['training_results']
+    final_Q_functions = training_data['final_Q_functions']
+    sigq_params = training_data['sig_params']
+    training_params = training_data['training_params']
+    env_params = training_data['env_params']
+    training_seeds = training_data['training_seeds']
+    n_runs = len(training_results_dict)
+    
+    return (training_results_dict, final_Q_functions, sigq_params, 
+            training_params, env_params, training_seeds, n_runs)
+
 
 #--------------------------------------------------
 # other utility functionalities
