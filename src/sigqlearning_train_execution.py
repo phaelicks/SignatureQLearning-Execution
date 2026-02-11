@@ -55,11 +55,11 @@ def train(
         episode_pbar = range(episodes)
         episode_times = [] # workaround to display estimated remaining time in run
         groups = {'Reward': ['reward'], 'Loss': ['loss'], 
-                  'Terminal Inventory': ['inventory'], 'Remaining Time (min)': ['time']}
+                  'Terminal Inventory': ['inventory'], 'Remaining Minutes in Run': ['time']}
         outputs = [MatplotlibPlot(after_subplot=utils.custom_after_subplot)]
         plotlosses = PlotLosses(groups=groups, outputs=outputs)
     else:
-        episode_pbar = tqdm.trange(episodes)
+        episode_pbar = tqdm.trange(episodes, leave=False)
         episode_pbar.set_description(f"Episode")
 
     # LISTS FOR LOGGING HISTORIES
