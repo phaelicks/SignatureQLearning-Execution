@@ -13,8 +13,8 @@ from abides_gym.envs.markets_environment import AbidesGymMarketsEnv
 
 class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
     """
-    Execution v1 environment, it defines a new ABIDES-Gym-markets environment.
-    It provides an evironment for a simple algorithmic order execution problem 
+    Execution environment, it defines a new ABIDES-Gym-markets environment.
+    It provides an environment for a simple algorithmic order execution problem 
     The agent has either an initial inventory of the stocks it tries sell or 
     no initial inventory and tries to acquire a target number of shares. It can do 
     so by sending limit sell and limit buy orders at the first level in the book
@@ -35,12 +35,14 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
         - observation_interval: how long the gym experimential agent only observes the market after first_interval 
         - max_inventory: absolute value of maximum inventory the experimental gym agent is allowed to accumulate
         - starting_inventory: inventory units the gym agent starts with at market open
-        - running_inventory_reward_dampener: parameter that defines dampening of rewards from speculation
-        - terminal_inventory_reward: max terminal reward achievable with zero inventory at market close
-        - debug_mode: arguments to change the info dictionnary (lighter version if performance is an issue)
+        - running_reward_offset: whether to apply an offset to the running inventory reward calculation to create positive rewards near zero inventory
+        - running_reward_multiplier: optional float multiplier applied to the running inventory reward
+        - terminal_reward_offset: whether to apply an offset to the terminal inventory reward calculation
+        - terminal_reward_multiplier: multiplier for terminal reward (positive for penalty, negative for reward) based on final inventory
+        - debug_mode: argument to change the info dictionary (lighter version if performance is an issue)
         - background_config_extra_kvargs: dictionary of extra key value  arguments passed to the background config builder function
     
-    Market Maker V0:
+    Execution Agent:
         - Action Space:
             - LMT BUY of order_fixed_size at best bid price in current book
             - LMT SELL of order_fixed_size at best ask price in current book
@@ -50,7 +52,7 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
             - inventory_pct
     """
 
-    # Decorator for functions to ignore buffering in market data and generl raw state
+    # Decorator for functions to ignore buffering in market data and general raw state
     raw_state_pre_process = markets_agent_utils.ignore_buffers_decorator
     raw_state_to_state_pre_process = (
         markets_agent_utils.ignore_mkt_data_buffer_decorator
@@ -65,16 +67,14 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
             state_history_length: int = 1,  
             market_data_buffer_length: int = 1,
             first_interval: str = "00:05:00",
-            observation_interval: str = "00:01:00",
+            observation_interval: str = "00:00:00",
             order_fixed_size: int = 100,
             max_inventory: int = 1000,
             starting_inventory: Union[int,str] = 0,            
-            terminal_inventory_reward: float = 0, 
-            terminal_inventory_mode: str = 'quadratic',
-            running_inventory_reward_dampener: float = 0.,
-            reward_multiplier: Optional[str] = None,
-            reward_multiplier_float: Optional[float] = None,
-            damp_mode: Optional[str] = None,
+            running_reward_offset: bool = True,
+            running_reward_multiplier: Optional[float] = None,
+            terminal_reward_offset: bool = True,
+            terminal_reward_multiplier: float = -1,
             debug_mode: bool = False,
             background_config_extra_kvargs: Dict[str, Any] = {}
     ) -> None: 
@@ -91,12 +91,10 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
         self.order_fixed_size: int = order_fixed_size
         self.max_inventory: int = max_inventory
         self.starting_inventory: int = starting_inventory
-        self.terminal_inventory_reward: float = terminal_inventory_reward
-        self.terminal_inventory_mode: str = terminal_inventory_mode        
-        self.running_inventory_reward_dampener: float = running_inventory_reward_dampener
-        self.reward_multiplier: Optional[str] = reward_multiplier
-        self.reward_multiplier_float: Optional[float] = reward_multiplier_float
-        self.damp_mode: Optional[str] = damp_mode
+        self.running_reward_offset: bool = running_reward_offset
+        self.running_reward_multiplier: Optional[float] = running_reward_multiplier
+        self.terminal_reward_offset: bool = terminal_reward_offset
+        self.terminal_reward_multiplier: float = terminal_reward_multiplier
         self.debug_mode: bool = debug_mode
 
         # time the market is open
@@ -159,24 +157,21 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
             self.starting_inventory % self.order_fixed_size == 0
         ), "Select starting_inventory as multiple of order_fixed_size"
 
-        assert (
-            type(self.terminal_inventory_reward) == float
-        ), "Select float value for terminal_inventory_reward"
+        assert type(self.running_reward_offset) == bool, \
+            "running_reward_offset needs to be True or False"
 
-        assert (type(self.running_inventory_reward_dampener) == float) & (
-            0 <= self.running_inventory_reward_dampener <= 1
-        ), "Select positive float value for running_inventory_reward_dampener between 0 and 1"
+        assert (self.running_reward_multiplier is None) or (
+            type(self.running_reward_multiplier) == float
+        ), "running_reward_multiplier needs to be None or a float value"
 
-        assert damp_mode in [
-            "asymmetric",
-            "symmetric",
-            None,
-        ], "damp_mode needs to be symmetric, asymmetric or None"
+        assert type(self.terminal_reward_offset) == bool, \
+            "terminal_reward_offset needs to be True or False"
 
-        assert self.debug_mode in [
-            True,
-            False,
-        ], "debug_mode needs to be True or False"                
+        assert type(self.terminal_reward_multiplier) == float, \
+            "terminal_reward_multiplier needs to be a float value"
+
+        assert type(self.debug_mode) == bool, \
+            "debug_mode needs to be True or False"                
 
         # BACKGROUND CONFIG
         background_config_args = {"end_time": self.mkt_close}
@@ -244,6 +239,7 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
 
         # REWARDS
         self.previous_cash = self.starting_cash
+        self.terminal_reward = None # not None only after last episode step
 
 
     # UTILITY FUNCTIONS that translate between gym environment and ABIDES simulation
@@ -257,7 +253,7 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
         The action space ranges [0, 1, 2] where:
         - `0` LMT BUY order of order_fixed_size at best bid level
         - `1` LMT SELL order of order_fixed_size at best ask level
-        - '2' DO NOTHING
+        - `2` DO NOTHING
 
         Note: LMT oder price levels are defined via the current spread to
         handle simulator pathologies such as an empty order book.
@@ -314,7 +310,7 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
             - raw_state: dictionnary that contains raw simulation information obtained from the gym experimental agent
 
         Returns:
-            - state: state / observation representation for the market making v0 environnement
+            - state: state / observation representation for the custom execution environnement
         """
                 
         # 0)  Preliminary
@@ -342,13 +338,6 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
         self.current_mid_price = mid_prices[-1]
         if len(mid_prices) > 1:
             print(mid_prices[-2] - self.previous_mid_price)
-
-        """
-        # TODO: explore the use of moving average of spread instead of just current spread
-        # moving average of spreads:
-        print("spread moving average: {}".format(spreads.mean()))
-        print("current spread: {}".format(self.spread))
-        """
 
         # 1) Timing
         mkt_open = raw_state["internal_data"]["mkt_open"][-1]
@@ -390,58 +379,29 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
             - raw_state: dictionnary that contains raw simulation information obtained from the gym experimental agent
 
         Returns:
-            - reward: immediate reward computed at each step  for the execution v0 environnement
+            - reward: immediate reward computed at each step  for the custom execution environnement
         """
         
-        # We define the (running) reward as the change in inventory value due to midprice fluctuations. 
-        # Additionally, this reward can be dampened either symmetrically (positive and negative rewards)
-        # or asymmetrically (only positive rewards), see (Spooner et al. (2018)).        
+        # We define the (running) reward as the change in inventory value due to midprice fluctuations.
 
         # 1) change in inventory value
         mid_price_change = (self.current_mid_price - self.previous_mid_price) / 100 # dollar terms
         inventory_pct = self.current_inventory / self.max_inventory
 
-        if self.reward_multiplier == 'flat':
-            offset = (0.5 * self.order_fixed_size) / self.max_inventory
-            #inventory_pct = np.sign(inventory_pct) * max(abs(inventory_pct) - offset, 0)
-            # linear flat both sides
-            inventory_reward = - max(abs(inventory_pct) - offset, 0.) * abs(mid_price_change)
-
+        # 2) running inventory reward calculation 
+        if self.running_reward_offset:
+            offset = (0.5 * self.order_fixed_size) / self.max_inventory 
+        else:
+            offset = 0.
         
-        if self.reward_multiplier == 'quadratic':
-            #inventory_pct = np.sign(inventory_pct) * inventory_pct ** 2
-            
-            # quadratic both sides
-            inventory_reward = - (inventory_pct ** 2) * abs(mid_price_change)
+        running_reward = (offset ** 2 - inventory_pct ** 2) * abs(mid_price_change)    
 
-        if self.reward_multiplier == 'quadratic_flat':            
-            # quadratic both sides with flat part
-            offset = (0.5 * self.order_fixed_size) / self.max_inventory
-            inventory_reward = - (max(abs(inventory_pct) - offset, 0.) ** 2) * abs(mid_price_change)
+        if self.running_reward_multiplier is not None:
+            running_reward *= self.running_reward_multiplier        
 
-        if self.reward_multiplier == 'quadratic_positive':            
-            # quadratic both sides with positive part
-            offset = (0.5 * self.order_fixed_size) / self.max_inventory
-            inventory_reward = - (inventory_pct ** 2 - offset ** 2) * abs(mid_price_change)
-    
+        self.running_reward = running_reward
 
-        if self.reward_multiplier_float is not None:
-            inventory_reward *= self.reward_multiplier_float        
-
-        # damp inventory reward 
-        if self.damp_mode == "symmetric":
-            inventory_reward *= (1 - self.running_inventory_reward_dampener)
-        elif self.damp_mode == "asymmetric":
-            inventory_reward -= max(
-                0.,
-                self.running_inventory_reward_dampener * inventory_reward
-            )
-        self.inventory_reward = inventory_reward #/ self.order_fixed_size
-        
-        # TODO: normalize for order size and max inventory?
-        #reward = pnl / self.order_fixed_size + inventory_change / self.max_inventory
-        
-        return inventory_reward
+        return running_reward
 
     @raw_state_pre_process
     def raw_state_to_update_reward(self, raw_state: Dict[str, Any]) -> float:
@@ -452,58 +412,25 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
             - raw_state: dictionnary that contains raw simulation information obtained from the gym experimental agent
 
         Returns:
-            - reward: update reward computed at the end of the episode for the daily investor v0 environnement
+            - reward: update reward computed at the end of the episode for the custom execution environnement
         """
 
         # 1) inventory pct
         inventory = self.starting_inventory + raw_state["internal_data"]["holdings"]
         inventory_pct = inventory / self.max_inventory # self.starting_inventory
 
-        #### WRONG TERMINAL REWARD - leads to interesting behaviour
-        #update_reward = - self.terminal_inventory_reward * (inventory_pct ** 2)
-        ####
-        update_reward = 0
-        offset = 0.5 * self.order_fixed_size / self.max_inventory
+        # 2) reward update (terminal inventory reward) calculation
+        offset = (0.5 * self.order_fixed_size) / self.max_inventory \
+            if self.terminal_reward_offset else 0.
+
+        update_reward = (
+            (offset ** 2 - inventory_pct ** 2) * self.terminal_reward_multiplier # mostly penalty
+            if self.terminal_reward_multiplier > 0 else
+            1 - (inventory_pct ** 2 + offset ** 2) * self.terminal_reward_multiplier # mostly reward
+        )
         
-        if self.terminal_inventory_mode == 'quadratic':
-            # quadratic reward / penalty depending on sign of terminal_inventory_reward
-            if self.reward_multiplier == 'quadratic':
-                update_reward = (
-                    self.terminal_inventory_reward * (inventory_pct ** 2) # penalty
-                    if self.terminal_inventory_reward < 0 else
-                    self.terminal_inventory_reward * (1 - inventory_pct ** 2) # reward
-                )
-            elif self.reward_multiplier == 'quadratic_flat':
-                update_reward = (
-                    self.terminal_inventory_reward * (max(abs(inventory_pct) - offset, 0.) ** 2) # penalty
-                    if self.terminal_inventory_reward < 0 else
-                    self.terminal_inventory_reward * (1 - (max(abs(inventory_pct) - offset, 0.) ** 2)) # reward
-                )
-            elif self.reward_multiplier == 'quadratic_positive':
-                update_reward = (
-                    self.terminal_inventory_reward * (inventory_pct ** 2 - offset ** 2) # penalty
-                    if self.terminal_inventory_reward < 0 else
-                    self.terminal_inventory_reward * (1 - (inventory_pct ** 2 - offset ** 2)) # reward
-                )
-        elif self.terminal_inventory_mode == 'linear':
-            # linear reward / penalty depending on sign of terminal_inventory_reward
-            update_reward = (
-                self.terminal_inventory_reward * abs(inventory_pct) # penalty
-                if self.terminal_inventory_reward < 0 else
-                self.terminal_inventory_reward * (1 - abs(inventory_pct)) # reward
-            )
-        elif self.terminal_inventory_mode == 'flat':
-            # linear flat reward / penalty
-            offset = 0.5 * self.order_fixed_size / self.max_inventory
-            new_inventory_pct = max(abs(inventory_pct) - offset, 0.)
-            update_reward = (
-                self.terminal_inventory_reward * new_inventory_pct # penalty
-                if self.terminal_inventory_reward < 0 else
-                self.terminal_inventory_reward * (1 - new_inventory_pct) # reward
-            )
-        else:
-            raise ValueError("Select quadratic, linear or flat for terminal_inventory_mode")
-        
+        self.terminal_reward = update_reward
+
         return update_reward #/ self.order_fixed_size
 
     @raw_state_pre_process
@@ -515,7 +442,7 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
             - raw_state: dictionnary that contains raw simulation information obtained from the gym experimental agent
 
         Returns:
-            - done: flag that describes if the episode is terminated or not  for the execution v0 environnement
+            - done: flag that describes if the episode is terminated or not  for the custom execution environnement
         """
         # episode can stop because market closes (or because some condition is met)
         # here no other condition is used (such as running out of cash)
@@ -530,7 +457,7 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
             - raw_state: dictionnary that contains raw simulation information obtained from the gym experimental agent
 
         Returns:
-            - reward: info dictionnary computed at each step for the daily investor v0 environnement
+            - reward: info dictionnary computed at each step for the custom execution environnement
         """
         # Agent cannot use this info for taking decision
         # only for debugging
@@ -597,9 +524,10 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
         self.pnl = pnl / self.order_fixed_size
         self.previous_cash = cash
         
-        # 16) inventory_reward = self.inventory_reward
-        # 17) reward = self.pnl + self.inventory_reward
-        # 18) mid_price = self.mid_price
+        # 16) running_reward = self.running_reward
+        # 17) terminal_reward = self.terminal_reward
+        # 18) pnl_reward = self.pnl + self.running_reward
+        # 19) mid_price = self.mid_price
 
         if self.debug_mode == True: # info returned in debug mode
             return {
@@ -623,8 +551,8 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
                 "bid_spread": bid_spread,
                 "marked_to_market": marked_to_market,
                 "pnl": self.pnl,
-                "inventory_reward": self.inventory_reward,
-                "reward": self.pnl + self.inventory_reward,
+                "running_reward": self.running_reward,
+                "terminal_reward": self.terminal_reward,
                 "mid_price": self.current_mid_price,
             }
         else: # info always returned
@@ -632,7 +560,8 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
                 "cash": cash,
                 "pnl": self.pnl,
                 "inventory": inventory,
-                "inventory_reward": self.inventory_reward,
+                "running_reward": self.running_reward,
+                "terminal_reward": self.terminal_reward,
                 "mid_price": self.current_mid_price,
             }   
 
@@ -647,6 +576,7 @@ class SubGymMarketsCustomExecutionEnv(AbidesGymMarketsEnv):
         self.current_inventory = self.starting_inventory
         self.previous_inventory = self.starting_inventory
         self.previous_cash = self.starting_cash
+        self.terminal_reward = None
 
         return
 
