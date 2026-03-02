@@ -1,4 +1,5 @@
 from datetime import datetime
+import gzip
 import pickle
 from pathlib import Path
 from random import seed
@@ -133,9 +134,10 @@ def get_date_id():
     
     while True:
         date_id = date + '_' + chr(id)
-        # Check if any file ends with the date_id pattern
-        pattern = f'*{date_id}.pkl'
-        existing_files = list(results_dir.glob(pattern))
+        # Check if any file ends with the date_id pattern (both .pkl and .pkl.gz)
+        pattern_pkl = f'*{date_id}.pkl'
+        pattern_pkz_gz = f'*{date_id}.pkl.gz'
+        existing_files = list(results_dir.glob(pattern_pkl)) + list(results_dir.glob(pattern_pkz_gz))
         
         if not existing_files:  # No files found with this date_id
             print('Current date_id: {}'.format(date_id))
@@ -146,7 +148,7 @@ def get_date_id():
         )
         id += 1    
 
-def save_results(results: Any, date_id: str, results_type: str):
+def save_results(results: Any, date_id: str, results_type: str, compress: bool = True):
     """
     Save results to a pickle file in the results directory with a given date_id.
     If a file with the same type and date_id combination already exists,
@@ -156,6 +158,7 @@ def save_results(results: Any, date_id: str, results_type: str):
         results: results to save, can be any type serializable by pickle
         date_id: unique date_id string (format: YYYYMMDD_X, e.g., '20250206_A')
         result_type: type of results ('baseline', 'training', or 'testing')
+        compress: if True (default), saves as gzip-compressed .pkl.gz; if False, saves as .pkl
 
     Returns:
         date_id: the provided date_id if save was successful
@@ -165,6 +168,7 @@ def save_results(results: Any, date_id: str, results_type: str):
     """
     assert isinstance(date_id, str), "date_id must be a string."
     assert isinstance(results_type, str), "result_type must be a string."
+    assert isinstance(compress, bool), "compress must be a boolean."
     
     # Map result types to file names
     file_name_map = {
@@ -177,19 +181,26 @@ def save_results(results: Any, date_id: str, results_type: str):
         raise ValueError(f"result_type must be one of {list(file_name_map.keys())}, got '{results_type}'")
     
     file_name = file_name_map[results_type]
-    file_path = f'../results/{file_name}_{date_id}.pkl'
+    file_extension = '.pkl.gz' if compress else '.pkl'
+    file_path = f'../results/{file_name}_{date_id}{file_extension}'
     
-    # Check if file already exists
-    if Path(file_path).exists():
+    # Check if file already exists (check both .pkl.gz and .pkl formats)
+    pkl_path = f'../results/{file_name}_{date_id}.pkl'
+    gz_path = f'../results/{file_name}_{date_id}.pkl.gz'
+    if Path(file_path).exists() or Path(pkl_path).exists() or Path(gz_path).exists():
         warnings.warn(
-            f"File '{file_path}' already exists. Results were NOT saved."
+            f"File with date_id '{date_id}' and type '{results_type}' already exists. Results were NOT saved."
         )
         return date_id
     
     # Save results
     try:
-        with open(file_path, 'wb') as fout:
-            pickle.dump(results, fout)
+        if compress:
+            with gzip.open(file_path, 'wb') as fout:
+                pickle.dump(results, fout)
+        else:
+            with open(file_path, 'wb') as fout:
+                pickle.dump(results, fout)
         print(f"Results SAVED under: '{file_path}'")
         return date_id
     except Exception as e:
@@ -199,7 +210,8 @@ def save_results(results: Any, date_id: str, results_type: str):
 
 def load_results(date_id: str, results_type: str):
     """
-    Load results from a pickle file in the results directory with a given date_id.
+    Load results from a gzip-compressed or uncompressed pickle file in the results directory 
+    with a given date_id. Automatically detects and handles both .pkl.gz and legacy .pkl formats.
     
     Args:
         result_type: type of results ('baseline', 'training', or 'testing')
@@ -231,18 +243,28 @@ def load_results(date_id: str, results_type: str):
         raise ValueError(f"result_type must be one of {list(file_name_map.keys())}, got '{results_type}'")
     
     file_name = file_name_map[results_type]
+    file_path_gz = f'../results/{file_name}_{date_id}.pkl.gz'
     file_path = f'../results/{file_name}_{date_id}.pkl'
     
-    # Check if file exists
-    if not Path(file_path).exists():
-        raise FileNotFoundError(f"File '{file_path}' does not exist.")
+    # Check which file format exists (prefer compressed .pkl.gz)
+    if Path(file_path_gz).exists():
+        file_path = file_path_gz
+        is_compressed = True
+    elif Path(file_path).exists():
+        is_compressed = False
+    else:
+        raise FileNotFoundError(f"File '{file_path_gz}' or '{file_path}' does not exist.")
     
     # Load results
     try:
-        with open(file_path, 'rb') as fin:
-            results = pickle.load(fin)
+        if is_compressed:
+            with gzip.open(file_path, 'rb') as fin:
+                results = pickle.load(fin)
+        else:
+            with open(file_path, 'rb') as fin:
+                results = pickle.load(fin)
         print(f"Results of type '{results_type}' LOADED from: '{file_path}'") 
-        return results
+        return results                
     except Exception as e:
         raise RuntimeError(f"Error loading results from '{file_path}': {e}") 
     
