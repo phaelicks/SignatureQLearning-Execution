@@ -1,16 +1,16 @@
 # -------------------------------------------------
 # custom .gitignore
+
+# directories
 **/__pycache__/
 **/.ipynb_checkpoints/
 .vs/
 .idea/
 .DS_Store
 /old
-/results
 
+# files
 Results_tracker.txt
-sigqlearning_qfunctions_copy.py
-merge_training_results.ipynb
 #-------------------------------------------------
 
 # ignore whole 'abides repository which is a subfolder
