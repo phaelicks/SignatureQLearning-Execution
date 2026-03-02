@@ -515,8 +515,11 @@ def plot_first_observation_values(training_results_dict, run_ids='all', mean=Tru
             plt.fill_between(range(len(means)), means + stds, means - stds, 
                             label=r"$\pm\sigma_{v_0^*(n)}$", alpha=0.2, color='black')
         handles, labels = plt.gca().get_legend_handles_labels()
-        order = [*range(7), 10, 7, 8, 9, 11] if figsize[1] < 4 else [*(range(5)),10,*range(5,10),11]
-        plt.legend([handles[idx] for idx in order],[labels[idx] for idx in order],
+        if len(run_ids) == 10: # nice legend ordering
+            order = [*range(7), 10, 7, 8, 9, 11] if figsize[1] < 4 else [*(range(5)),10,*range(5,10),11]
+        else:
+            order = list(range(len(handles)))    
+        plt.legend([handles[idx] for idx in order], [labels[idx] for idx in order],
                    loc='upper right', ncols=3 if figsize[1] < 4 else 2, fontsize=9)        
         plt.title('First observation values in training')    
 
@@ -538,7 +541,7 @@ def plot_first_observation_values(training_results_dict, run_ids='all', mean=Tru
 
 def plot_reward_vs_first_obs_value(training_results_dict, episode_window=(-500, -1), 
                                    figsize=None, line=None, date_id=None,
-                                   save=False, show=True):
+                                   save=False, show=True, fixed_ylim=False):
     """
     Plot average reward and average first observation value side by side 
     for a given episode window, with +/- one standard deviation bands.
@@ -552,15 +555,25 @@ def plot_reward_vs_first_obs_value(training_results_dict, episode_window=(-500, 
         date_id (str or None): Date identifier appended to saved file name.
         save (bool): Whether to save the plot. Defaults to False.
         show (bool): Whether to show the plot. Defaults to True.
+        fixed_ylim (bool): Whether to fix y-limits for better visibility.
 
     Returns:
         None
     """
-    fig, axs = plt.subplots(1, 2, figsize=figsize)
-    n_episodes = len(list(training_results_dict.values())[0]['rewards'])
+    n_episodes = len(list(training_results_dict.values())[0]['rewards'])    
+    if episode_window is None:
+        episode_window = (0, n_episodes)
+    
+    window_length = episode_window[1] - episode_window[0]
+    assert (
+        window_length > 0 and max(abs(episode_window[0]), abs(episode_window[1])) <= n_episodes
+     ), "Episode window end must be greater than start and within bounds."
+
     start = episode_window[0] if episode_window[0] >= 0 else n_episodes + episode_window[0]
     end = episode_window[1] if episode_window[1] >= 0 else n_episodes + episode_window[1]
     domain = range(start, end)
+
+    fig, axs = plt.subplots(1, 2, figsize=figsize)
     # rewards
     means = np.mean([run['rewards'][start:end] for run in training_results_dict.values()], axis=0)
     stds_val = np.std([run['rewards'][start:end] for run in training_results_dict.values()], axis=0)
@@ -569,7 +582,8 @@ def plot_reward_vs_first_obs_value(training_results_dict, episode_window=(-500, 
                         label=r"$\pm$ $\sigma_{reward}$")
     if line is not None:
         axs[0].plot(domain, [line for _ in domain], ls=':', lw=1.2, color='black') 
-    axs[0].set_ylim([-0.22, 0.05])    
+    if fixed_ylim:
+        axs[0].set_ylim([-0.22, 0.05])    
     axs[0].set_ylabel(r'reward', fontsize=11)
     axs[0].set_xlabel(r'episode $n$', fontsize=11)
     axs[0].legend(loc='lower right', fontsize=9)
@@ -583,7 +597,8 @@ def plot_reward_vs_first_obs_value(training_results_dict, episode_window=(-500, 
                         label=r"$\pm$ $\sigma_{v_0^*(n)}$")
     if line is not None:
         axs[1].plot(domain, [line for _ in domain], ls=':', lw=1.2, color='black') 
-    axs[1].set_ylim([-0.10, -0.070])    
+    if fixed_ylim:
+        axs[1].set_ylim([-0.10, -0.070])    
     axs[1].legend(loc='lower right', fontsize=9)
     axs[1].set_title(r'Average $v_0^*(n)$ in training', fontsize=11)
     axs[1].set_ylabel(r'$v_0^*(n)$', fontsize=11)
