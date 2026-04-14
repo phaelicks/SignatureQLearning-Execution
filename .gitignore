@@ -11,6 +11,7 @@
 
 # files
 Results_tracker.txt
+requirements_freeze.txt
 #-------------------------------------------------
 
 # ignore whole 'abides repository which is a subfolder
